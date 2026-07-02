@@ -172,9 +172,9 @@ _LineFit _fitLine({
   }
 
   final n = words.length;
-  // Small safety margin to absorb rounding/kerning differences between this
-  // per-word measurement and the real layout pass.
-  final usableWidth = maxWidth * 0.98;
+  // Conservative width budget: font metrics differ slightly across platforms
+  // (Linux CI vs local), so leave extra headroom to avoid RenderFlex overflow.
+  final usableWidth = maxWidth * 0.94;
   final fixedChrome = n * _wordPadding * 2;
   final availableForGlyphs = usableWidth - fixedChrome;
 
@@ -182,21 +182,81 @@ _LineFit _fitLine({
   if (glyphWidthAtBase <= 0) return _LineFit(baseFontSize, _maxWordMargin);
 
   final marginNeeded = (availableForGlyphs - glyphWidthAtBase) / (n * 2);
+  _LineFit fit;
   if (marginNeeded >= _minWordMargin) {
-    return _LineFit(
+    fit = _LineFit(
       baseFontSize,
       marginNeeded.clamp(_minWordMargin, _maxWordMargin),
     );
+  } else {
+    // Even with no gap between words the glyphs alone don't fit at
+    // baseFontSize: shrink the font just enough to make them fit exactly,
+    // scaling glyph width roughly linearly with font size.
+    final scale = availableForGlyphs / glyphWidthAtBase;
+    fit = _LineFit(
+      (baseFontSize * scale).clamp(_minRenderedFontSize, baseFontSize),
+      _minWordMargin,
+    );
   }
 
-  // Even with no gap between words the glyphs alone don't fit at
-  // baseFontSize: shrink the font just enough to make them fit exactly,
-  // scaling glyph width roughly linearly with font size.
-  final scale = availableForGlyphs / glyphWidthAtBase;
-  return _LineFit(
-    (baseFontSize * scale).clamp(_minRenderedFontSize, baseFontSize),
-    _minWordMargin,
+  return _tightenFitUntilMeasuredWidthFits(
+    words: words,
+    fontFamily: fontFamily,
+    fit: fit,
+    maxWidth: maxWidth,
   );
+}
+
+double _measuredLineWidth({
+  required List<MushafWord> words,
+  required String fontFamily,
+  required double fontSize,
+  required double wordMargin,
+}) {
+  var total = 0.0;
+  for (final word in words) {
+    final chrome = wordMargin * 2 + _wordPadding * 2;
+    if (word.isAyahMarker) {
+      total += _ayahMarkerDiameter(fontSize) + chrome;
+      continue;
+    }
+    final painter = TextPainter(
+      text: TextSpan(
+        text: word.text,
+        style: TextStyle(fontFamily: fontFamily, fontSize: fontSize),
+      ),
+      textDirection: TextDirection.rtl,
+      maxLines: 1,
+    )..layout();
+    total += painter.width + chrome;
+  }
+  return total;
+}
+
+/// Nudges [fit] down until the summed child widths fit [maxWidth].
+_LineFit _tightenFitUntilMeasuredWidthFits({
+  required List<MushafWord> words,
+  required String fontFamily,
+  required _LineFit fit,
+  required double maxWidth,
+}) {
+  var current = fit;
+  for (var i = 0; i < 8; i++) {
+    final measured = _measuredLineWidth(
+      words: words,
+      fontFamily: fontFamily,
+      fontSize: current.fontSize,
+      wordMargin: current.wordMargin,
+    );
+    if (measured <= maxWidth) return current;
+
+    final scale = (maxWidth / measured) * 0.98;
+    current = _LineFit(
+      (current.fontSize * scale).clamp(_minRenderedFontSize, current.fontSize),
+      current.wordMargin,
+    );
+  }
+  return current;
 }
 
 class _MushafLineWidget extends StatelessWidget {
