@@ -7,8 +7,8 @@ services:
     ports:
       - "8000:8000"
     environment:
-      WHISPER_MODEL: small
-      WHISPER_COMPUTE_TYPE: int8
+      WHISPER_MODEL: OdyAsh/faster-whisper-base-ar-quran
+      WHISPER_COMPUTE_TYPE: float32
       WHISPER_DEVICE: cpu
     volumes:
       # Persist uploads + the Whisper model cache across restarts.

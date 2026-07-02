@@ -34,6 +34,9 @@ htmlcov/
 *.log
 logs/
 
+# Local dev test artifacts
+test_sample.mp3
+
 # Databases
 *.db
 *.sqlite

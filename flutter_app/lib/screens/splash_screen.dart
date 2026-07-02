@@ -4,6 +4,7 @@ import '../config/theme.dart';
 import '../config/routes.dart';
 import '../services/auth_service.dart';
 import '../services/quran_service.dart';
+import '../widgets/app_logo.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -87,23 +88,7 @@ class _SplashScreenState extends State<SplashScreen>
                   opacity: _fadeAnimation,
                   child: ScaleTransition(
                     scale: _scaleAnimation,
-                    child: Container(
-                      width: 140,
-                      height: 140,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.15),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: QuranyTheme.primaryGold,
-                          width: 3,
-                        ),
-                      ),
-                      child: const Icon(
-                        Icons.menu_book_rounded,
-                        size: 70,
-                        color: QuranyTheme.primaryGold,
-                      ),
-                    ),
+                    child: const AppLogo(size: 160, color: QuranyTheme.accent),
                   ),
                 ),
                 const SizedBox(height: 30),

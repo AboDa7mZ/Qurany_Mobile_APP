@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../config/routes.dart';
 import '../../services/auth_service.dart';
+import '../../widgets/app_logo.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -75,21 +76,7 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               children: [
                 const SizedBox(height: 40),
-                // Logo
-                Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: QuranyTheme.primaryGold, width: 2),
-                  ),
-                  child: const Icon(
-                    Icons.menu_book_rounded,
-                    size: 50,
-                    color: QuranyTheme.primaryGold,
-                  ),
-                ),
+                const AppLogo(size: 120, color: QuranyTheme.accent),
                 const SizedBox(height: 16),
                 const Text(
                   'قُرآنِي',

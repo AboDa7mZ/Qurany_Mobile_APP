@@ -70,7 +70,7 @@ class _SurahListScreenState extends State<SurahListScreen> {
                           qiraatService.setQiraat(newValue);
                         }
                       },
-                      items: <String>['حفص', 'ورش', 'قالون']
+                      items: <String>['حفص','البزي']
                           .map<DropdownMenuItem<String>>((String value) {
                         return DropdownMenuItem<String>(
                           value: value,

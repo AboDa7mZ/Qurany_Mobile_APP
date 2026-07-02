@@ -14,6 +14,7 @@ import '../../services/mushaf_layout_service.dart';
 import '../../services/bookmark_service.dart';
 import '../../services/khatmah_service.dart';
 import '../../widgets/app_icons.dart';
+import '../../widgets/tafsir_sheet.dart';
 import 'widgets/mushaf_page_widget.dart';
 
 /// Full 604-page Mushaf reader. Pages are fetched lazily via
@@ -324,6 +325,19 @@ class _MushafReaderScreenState extends State<MushafReaderScreen> {
                   Navigator.pop(ctx);
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('تم نسخ الآية')),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.menu_book, color: QuranyTheme.primaryGreen),
+                title: const Text('عرض التفسير'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  showTafsirSheet(
+                    context,
+                    surahNumber: word.surahNumber,
+                    ayahNumber: word.ayahNumber,
+                    verseLabel: word.verseKey,
                   );
                 },
               ),

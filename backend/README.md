@@ -3,8 +3,11 @@
 Python **FastAPI** backend for the Qurany Quranic recitation learning app.
 
 It receives recitation audio from the Flutter client, transcribes it with
-**faster-whisper** (local, free ASR), normalizes the Arabic, aligns it against
-the canonical Uthmani text, and returns **word-by-word feedback**.
+**faster-whisper** using the Tarteel Quranic Arabic model
+([tarteel-ai/whisper-base-ar-quran](https://huggingface.co/tarteel-ai/whisper-base-ar-quran),
+loaded via the CT2 build `OdyAsh/faster-whisper-base-ar-quran`), normalizes the
+Arabic, aligns it against the canonical Uthmani text, and returns **word-by-word
+feedback**.
 
 > **MVP scope:** only **Surah Al-Naba (chapter 78)**.
 
@@ -67,7 +70,16 @@ python main.py                   # or: uvicorn src.main:app --reload
 Open the interactive API docs at `http://localhost:8000/docs`.
 
 The first request that needs ASR downloads the Whisper model (cached
-afterwards). Set the size with `WHISPER_MODEL` (`tiny`/`base`/`small`/...).
+afterwards). Default model: `OdyAsh/faster-whisper-base-ar-quran` (CT2 build of
+[tarteel-ai/whisper-base-ar-quran](https://huggingface.co/tarteel-ai/whisper-base-ar-quran)).
+Override with `WHISPER_MODEL` / `WHISPER_COMPUTE_TYPE`.
+
+### Quick ASR smoke test
+
+```bash
+python scripts/download_and_test_tarteel_whisper.py
+python scripts/download_and_test_tarteel_whisper.py --audio path/to/recitation.wav
+```
 
 ## API
 

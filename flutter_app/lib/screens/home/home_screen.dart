@@ -12,7 +12,10 @@ import '../../services/recitation_history_service.dart';
 import '../../services/learning_plan_service.dart';
 import '../../services/khatmah_service.dart';
 import '../../services/schedule_service.dart';
+import '../../services/prayer_times_service.dart';
 import '../../widgets/app_icons.dart';
+import '../../widgets/app_logo.dart';
+import '../../widgets/prayer_times_banner.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -39,7 +42,15 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
-        onTap: (i) => setState(() => _selectedIndex = i),
+        onTap: (i) {
+          setState(() => _selectedIndex = i);
+          if (i == 0) {
+            context
+                .read<QuranService>()
+                .ensureVerseOfTheDayWithTranslation();
+            context.read<PrayerTimesService>().loadPrayerTimes();
+          }
+        },
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home_rounded),
@@ -78,9 +89,8 @@ class _DashboardTabState extends State<_DashboardTab> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final quran = context.read<QuranService>();
-      if (quran.verseOfTheDay == null && !quran.verseOfTheDayLoading) {
-        quran.loadRandomVerse();
-      }
+      quran.ensureVerseOfTheDayWithTranslation();
+      context.read<PrayerTimesService>().loadPrayerTimes();
     });
   }
 
@@ -91,6 +101,7 @@ class _DashboardTabState extends State<_DashboardTab> {
     final schedule = context.watch<ScheduleService>();
     final quran = context.watch<QuranService>();
     final khatmahService = context.watch<KhatmahService>();
+    final prayerTimes = context.watch<PrayerTimesService>();
 
     return Scaffold(
       backgroundColor: QuranyTheme.background,
@@ -133,6 +144,16 @@ class _DashboardTabState extends State<_DashboardTab> {
                       ),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+                        child: PrayerTimesBanner(
+                          day: prayerTimes.today,
+                          isLoading: prayerTimes.isLoading,
+                          error: prayerTimes.error,
+                          onRetry: () =>
+                              prayerTimes.loadPrayerTimes(force: true),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                         child: _ContinueReadingCard(
                           lastSession: history.sessions.isNotEmpty
                               ? history.sessions.first
@@ -389,15 +410,7 @@ class _DashboardTopBar extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Image.asset(
-                  'assets/theLogo.png',
-                  height: 28,
-                  errorBuilder: (context, error, stackTrace) => const Icon(
-                    Icons.menu_book_rounded,
-                    color: QuranyTheme.primary,
-                    size: 24,
-                  ),
-                ),
+                const AppLogo(size: 28),
                 const SizedBox(width: 8),
                 const Text(
                   'قُرآنِي',
@@ -873,7 +886,7 @@ class _VerseOfTheDayCard extends StatelessWidget {
                   ],
                 ),
               )
-            else if (verse != null && verse!.text.isNotEmpty)
+            else if (verse != null && verse!.text.isNotEmpty) ...[
               Text(
                 verse!.text,
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
@@ -884,7 +897,43 @@ class _VerseOfTheDayCard extends StatelessWidget {
                     ),
                 textAlign: TextAlign.start,
                 textDirection: TextDirection.rtl,
-              )
+              ),
+              if (verse!.englishTranslation != null &&
+                  verse!.englishTranslation!.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Divider(color: QuranyTheme.border.withValues(alpha: 0.8)),
+                const SizedBox(height: 12),
+                Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'English Translation',
+                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                              fontSize: 12,
+                              letterSpacing: 0.4,
+                              fontWeight: FontWeight.w600,
+                              color: QuranyTheme.primary,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        verse!.englishTranslation!,
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                              fontSize: 15,
+                              height: 1.55,
+                              color: QuranyTheme.textPrimary.withValues(
+                                alpha: 0.85,
+                              ),
+                            ),
+                        textAlign: TextAlign.left,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ]
             else
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
@@ -908,9 +957,11 @@ class _VerseOfTheDayCard extends StatelessWidget {
                       onTap: () {
                         final reference =
                             '$surahName ${verse!.surahNumber}:${verse!.verseNumber}';
-                        Clipboard.setData(
-                          ClipboardData(text: '${verse!.text}\n— $reference'),
-                        );
+                        final english = verse!.englishTranslation;
+                        final copyText = english != null && english.isNotEmpty
+                            ? '${verse!.text}\n\n$english\n— $reference'
+                            : '${verse!.text}\n— $reference';
+                        Clipboard.setData(ClipboardData(text: copyText));
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('تم نسخ الآية'),

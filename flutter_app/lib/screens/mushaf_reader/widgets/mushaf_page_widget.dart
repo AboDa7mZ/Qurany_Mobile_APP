@@ -384,8 +384,8 @@ class _MushafWordWidget extends StatelessWidget {
 
 /// The small decorative circle marking the end of an ayah, with its verse
 /// number (in Eastern Arabic numerals, exactly as supplied by the API)
-/// drawn clearly in the centre - rather than relying on the body script
-/// font (which has no special glyph for this) to render an ornament.
+/// drawn clearly in the centre - styled like a printed mushaf ornament
+/// rather than a generic star icon.
 class _AyahEndMarker extends StatelessWidget {
   final String number;
   final double fontSize;
@@ -403,7 +403,9 @@ class _AyahEndMarker extends StatelessWidget {
     // scaled down for density - a circle that shrinks in lock-step with a
     // 9-word dense line would become illegibly small.
     final diameter = _ayahMarkerDiameter(fontSize);
-    final numberSize = diameter * 0.46;
+    final numberSize = diameter * 0.42;
+    final color = QuranyTheme.primary
+        .withValues(alpha: isHighlighted ? 1 : 0.65);
 
     return SizedBox(
       width: diameter,
@@ -411,18 +413,16 @@ class _AyahEndMarker extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          Icon(
-            Icons.star_outline_rounded,
-            size: diameter,
-            color: QuranyTheme.primary
-                .withValues(alpha: isHighlighted ? 1 : 0.55),
+          CustomPaint(
+            size: Size(diameter, diameter),
+            painter: _MushafAyahCirclePainter(color: color),
           ),
           Text(
             number,
             style: TextStyle(
               fontSize: numberSize,
-              fontWeight: FontWeight.bold,
-              color: QuranyTheme.primary,
+              fontWeight: FontWeight.w600,
+              color: color,
               height: 1,
             ),
             textDirection: TextDirection.rtl,
@@ -431,4 +431,36 @@ class _AyahEndMarker extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Double-ring circle ornament mimicking the ayah-end marker on a printed
+/// mushaf page (۝), without relying on a font glyph that may not exist in
+/// the selected Quran script face.
+class _MushafAyahCirclePainter extends CustomPainter {
+  final Color color;
+
+  const _MushafAyahCirclePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final outerRadius = size.width * 0.44;
+    final stroke = (size.width * 0.055).clamp(1.0, 2.0);
+
+    final ring = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke;
+
+    canvas.drawCircle(center, outerRadius, ring);
+    canvas.drawCircle(
+      center,
+      outerRadius * 0.72,
+      ring..strokeWidth = stroke * 0.75,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _MushafAyahCirclePainter oldDelegate) =>
+      oldDelegate.color != color;
 }

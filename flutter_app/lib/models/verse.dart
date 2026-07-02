@@ -5,6 +5,7 @@ class Verse {
   final int? pageNumber; // Page number
   final String text; // Uthmani script with diacritics
   final String textSimple; // Without diacritics
+  final String? englishTranslation; // e.g. Sahih International via AlQuran Cloud
 
   const Verse({
     required this.surahNumber,
@@ -13,6 +14,7 @@ class Verse {
     this.pageNumber,
     required this.text,
     this.textSimple = '',
+    this.englishTranslation,
   });
 
   /// Husary audio URL for this verse (EveryAyah API is more reliable)
@@ -30,6 +32,7 @@ class Verse {
       pageNumber: json['page'] ?? json['pageNumber'],
       text: json['text'] ?? '',
       textSimple: json['textSimple'] ?? '',
+      englishTranslation: json['englishTranslation'] as String?,
     );
   }
 
@@ -40,5 +43,6 @@ class Verse {
         'pageNumber': pageNumber,
         'text': text,
         'textSimple': textSimple,
+        'englishTranslation': englishTranslation,
       };
 }

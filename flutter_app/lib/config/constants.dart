@@ -2,6 +2,22 @@ class AppConstants {
   // Quran API (public)
   static const String quranApiBaseUrl = 'https://api.alquran.cloud/v1';
 
+  /// English translation edition for random verse / ayah lookups.
+  /// See https://api.alquran.cloud/v1/edition/type/translation
+  static const String quranEnglishEdition = 'en.sahih';
+
+  /// Arabic tafsir edition (Jalalayn). See https://api.alquran.cloud/v1/edition/type/tafsir
+  static const String tafsirEdition = 'ar.jalalayn';
+  static const String tafsirEditionName = 'تفسير الجلالين';
+
+  // Prayer times (Aladhan API)
+  static const String aladhanApiBaseUrl = 'https://api.aladhan.com/v1';
+  static const String defaultPrayerCity = 'Cairo';
+  static const String defaultPrayerCountry = 'Egypt';
+
+  /// Egyptian General Authority of Survey (appropriate for Cairo)
+  static const int aladhanCalculationMethod = 5;
+
   // Recitation analysis backend (FastAPI + faster-whisper).
   // Override at build time: --dart-define=QURANY_API_BASE=http://<host>:8000
   //   - Android emulator -> http://10.0.2.2:8000 (maps to host localhost)

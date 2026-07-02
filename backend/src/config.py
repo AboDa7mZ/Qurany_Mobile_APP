@@ -31,11 +31,12 @@ class Settings(BaseSettings):
     supported_surahs: list[int] = [78]
 
     # ASR (faster-whisper)
-    # model size: tiny | base | small | medium | large-v3
-    whisper_model: str = "small"
+    # Default: CT2-converted tarteel-ai/whisper-base-ar-quran (Quranic Arabic).
+    # See https://huggingface.co/tarteel-ai/whisper-base-ar-quran
+    whisper_model: str = "OdyAsh/faster-whisper-base-ar-quran"
     # compute type: int8 (fast, CPU) | int8_float16 | float16 (GPU) | float32
-    whisper_compute_type: str = "int8"
-    whisper_device: str = "auto"  # auto | cpu | cuda
+    whisper_compute_type: str = "float32"
+    whisper_device: str = "cpu"  # auto | cpu | cuda
     whisper_beam_size: int = 5
     asr_language: str = "ar"
 

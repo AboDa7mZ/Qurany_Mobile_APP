@@ -8,6 +8,7 @@ import '../../models/recitation_session.dart';
 import '../../services/quran_service.dart';
 import '../../services/bookmark_service.dart';
 import '../../widgets/app_icons.dart';
+import '../../widgets/tafsir_sheet.dart';
 
 class QuranReaderScreen extends StatefulWidget {
   final int surahNumber;
@@ -296,6 +297,20 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
                   Navigator.pop(ctx);
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('تم نسخ الآية')),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.menu_book, color: QuranyTheme.primaryGreen),
+                title: const Text('عرض التفسير'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  showTafsirSheet(
+                    context,
+                    surahNumber: widget.surahNumber,
+                    ayahNumber: verse.verseNumber,
+                    verseLabel:
+                        '${widget.surahName} — ${verse.verseNumber}',
                   );
                 },
               ),
