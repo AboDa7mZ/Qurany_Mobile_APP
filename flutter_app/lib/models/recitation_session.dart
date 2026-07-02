@@ -116,6 +116,7 @@ class Bookmark {
   final int surahNumber;
   final String surahName;
   final int verseNumber;
+  final int? pageNumber; // Added for page bookmarking
   final DateTime dateTime;
   final String? note;
 
@@ -123,6 +124,7 @@ class Bookmark {
     required this.surahNumber,
     required this.surahName,
     required this.verseNumber,
+    this.pageNumber,
     required this.dateTime,
     this.note,
   });
@@ -132,6 +134,7 @@ class Bookmark {
       surahNumber: json['surahNumber'] ?? 0,
       surahName: json['surahName'] ?? '',
       verseNumber: json['verseNumber'] ?? 0,
+      pageNumber: json['pageNumber'],
       dateTime: DateTime.parse(json['dateTime'] ?? DateTime.now().toIso8601String()),
       note: json['note'],
     );
@@ -141,6 +144,7 @@ class Bookmark {
         'surahNumber': surahNumber,
         'surahName': surahName,
         'verseNumber': verseNumber,
+        'pageNumber': pageNumber,
         'dateTime': dateTime.toIso8601String(),
         'note': note,
       };

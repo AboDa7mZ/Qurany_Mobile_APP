@@ -17,18 +17,21 @@ import '../../services/quran_service.dart';
 import '../../services/recitation_api_service.dart';
 import '../../services/recitation_history_service.dart';
 import '../../services/schedule_service.dart';
+import '../../services/learning_plan_service.dart';
 import '../../widgets/app_icons.dart';
 
 class RecitationScreen extends StatefulWidget {
   final int? surahNumber;
   final String? surahName;
   final String mode; // 'free', 'memorization', 'tahfeez', or 'tasmee3'
+  final int? planDayNumber;
 
   const RecitationScreen({
     super.key,
     this.surahNumber,
     this.surahName,
     this.mode = 'free',
+    this.planDayNumber,
   });
 
   @override
@@ -713,6 +716,10 @@ class _RecitationScreenState extends State<RecitationScreen>
       });
       
       _tahfeezNextVerse();
+      
+      if (_currentVerseIndex == _verses.length - 1 && widget.planDayNumber != null) {
+         context.read<LearningPlanService>().markTaskCompleted(widget.planDayNumber!);
+      }
       
       Future.delayed(const Duration(milliseconds: 600), () {
         if (mounted) _playHusaryVerse();

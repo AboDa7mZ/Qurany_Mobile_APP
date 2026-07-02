@@ -35,6 +35,14 @@ class MushafPageIndex {
     return _startPage[surahNumber - 1];
   }
 
+  /// Returns the primary Surah number (1-114) that starts on or before the given page.
+  static int surahForPage(int pageNumber) {
+    for (int i = _startPage.length - 1; i >= 0; i--) {
+      if (_startPage[i] <= pageNumber) return i + 1;
+    }
+    return 1;
+  }
+
   /// Whether this Surah has its own decorative Basmallah line on the mushaf
   /// page (every Surah except Al-Fatihah, where the Basmallah is verse 1
   /// itself, and At-Tawbah, which has none).

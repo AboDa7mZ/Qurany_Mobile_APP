@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../config/routes.dart';
 import '../../config/constants.dart';
+import '../../services/qiraat_service.dart';
 import '../../widgets/app_icons.dart';
 
 class SurahListScreen extends StatefulWidget {
@@ -52,6 +54,35 @@ class _SurahListScreenState extends State<SurahListScreen> {
       appBar: AppBar(
         title: Text(_selectForRecitation ? 'اختر السورة' : 'فهرس السور'),
         leading: AppIcons.backButton(context: context),
+        actions: [
+          if (!_selectForRecitation)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Consumer<QiraatService>(
+                builder: (context, qiraatService, child) {
+                  return DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: qiraatService.selectedQiraat,
+                      icon: const Icon(Icons.arrow_drop_down, color: QuranyTheme.primaryGreen),
+                      style: const TextStyle(color: QuranyTheme.primaryGreen, fontWeight: FontWeight.bold, fontFamily: 'QPCHafs'),
+                      onChanged: (String? newValue) {
+                        if (newValue != null) {
+                          qiraatService.setQiraat(newValue);
+                        }
+                      },
+                      items: <String>['حفص', 'ورش', 'قالون']
+                          .map<DropdownMenuItem<String>>((String value) {
+                        return DropdownMenuItem<String>(
+                          value: value,
+                          child: Text(value),
+                        );
+                      }).toList(),
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
       ),
       body: Column(
         children: [

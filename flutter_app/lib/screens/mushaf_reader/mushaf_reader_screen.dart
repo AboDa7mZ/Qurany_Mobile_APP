@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import '../../config/mushaf_pages.dart';
 import '../../config/theme.dart';
+import '../../config/constants.dart';
+import '../../config/routes.dart';
 import '../../models/mushaf_layout.dart';
+import '../../models/recitation_session.dart';
 import '../../services/mushaf_layout_service.dart';
+import '../../services/bookmark_service.dart';
+import '../../services/khatmah_service.dart';
 import '../../widgets/app_icons.dart';
 import 'widgets/mushaf_page_widget.dart';
 
@@ -35,6 +41,7 @@ class _MushafReaderScreenState extends State<MushafReaderScreen> {
   double _fontSize = 19.0;
   String _selectedFontFamily = 'QPCHafs';
   String? _selectedVerseKey;
+  bool _hideAyahs = false;
 
   @override
   void initState() {
@@ -55,12 +62,37 @@ class _MushafReaderScreenState extends State<MushafReaderScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final int surahNumber = MushafPageIndex.surahForPage(_currentPage);
+    final String surahName = AppConstants.surahNames[surahNumber - 1];
+    final bookmarkService = context.watch<BookmarkService>();
+    final isBookmarked = bookmarkService.isPageBookmarked(_currentPage);
+
     return Scaffold(
       backgroundColor: QuranyTheme.background,
       appBar: AppBar(
-        title: Text('صفحة $_currentPage'),
+        title: Text('سورة $surahName'),
         leading: AppIcons.backButton(context: context),
         actions: [
+          IconButton(
+            icon: Icon(
+              isBookmarked ? Icons.bookmark : Icons.bookmark_border,
+              color: isBookmarked ? QuranyTheme.primaryGreen : null,
+            ),
+            tooltip: isBookmarked ? 'إزالة العلامة' : 'حفظ العلامة',
+            onPressed: () {
+              if (isBookmarked) {
+                bookmarkService.removePageBookmark(_currentPage);
+              } else {
+                bookmarkService.addPageBookmark(Bookmark(
+                  surahNumber: surahNumber,
+                  surahName: surahName,
+                  verseNumber: 0,
+                  pageNumber: _currentPage,
+                  dateTime: DateTime.now(),
+                ));
+              }
+            },
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.font_download_outlined),
             tooltip: 'تغيير الخط',
@@ -98,6 +130,12 @@ class _MushafReaderScreenState extends State<MushafReaderScreen> {
             _selectedVerseKey = null;
           });
           _service.prefetchAround(pageNumber);
+          
+          // Update Khatmah progress if active
+          final khatmahService = context.read<KhatmahService>();
+          if (khatmahService.hasActiveKhatmah) {
+            khatmahService.updateProgress(pageNumber);
+          }
         },
         itemBuilder: (context, index) {
           final pageNumber = index + 1;
@@ -144,6 +182,7 @@ class _MushafReaderScreenState extends State<MushafReaderScreen> {
                         fontSize: _fontSize,
                         fontFamily: _selectedFontFamily,
                         selectedVerseKey: _selectedVerseKey,
+                        hideAyahs: _hideAyahs,
                         onWordTap: (word) => _onWordTap(page, word),
                       ),
                     ),
@@ -153,6 +192,40 @@ class _MushafReaderScreenState extends State<MushafReaderScreen> {
             },
           );
         },
+      ),
+      bottomNavigationBar: Container(
+        color: QuranyTheme.surface,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12) +
+            MediaQuery.of(context).padding.copyWith(top: 0, left: 0, right: 0),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            IconButton(
+              icon: Icon(
+                _hideAyahs ? Icons.visibility_off : Icons.visibility,
+                color: _hideAyahs ? QuranyTheme.primaryGreen : Colors.grey,
+                size: 28,
+              ),
+              tooltip: _hideAyahs ? 'إظهار الآيات' : 'إخفاء الآيات',
+              onPressed: () => setState(() => _hideAyahs = !_hideAyahs),
+            ),
+            IconButton(
+              icon: const Icon(
+                Icons.mic,
+                color: QuranyTheme.primaryGreen,
+                size: 28,
+              ),
+              tooltip: 'تلاوة الصفحة',
+              onPressed: () {
+                Navigator.pushNamed(context, AppRoutes.recitation, arguments: {
+                  'surahNumber': surahNumber,
+                  'surahName': surahName,
+                  'mode': 'free',
+                });
+              },
+            ),
+          ],
+        ),
       ),
     );
   }

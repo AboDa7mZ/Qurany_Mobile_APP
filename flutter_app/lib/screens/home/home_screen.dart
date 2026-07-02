@@ -5,9 +5,12 @@ import '../../config/constants.dart';
 import '../../config/theme.dart';
 import '../../config/routes.dart';
 import '../../models/verse.dart';
+import '../../models/khatmah_plan.dart';
 import '../../services/auth_service.dart';
 import '../../services/quran_service.dart';
 import '../../services/recitation_history_service.dart';
+import '../../services/learning_plan_service.dart';
+import '../../services/khatmah_service.dart';
 import '../../services/schedule_service.dart';
 import '../../widgets/app_icons.dart';
 
@@ -30,7 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           _DashboardTab(),
           const _QuranTab(),
-          const _ReciteTab(),
+          const _MushafMuallimTab(),
           const _MoreTab(),
         ],
       ),
@@ -48,7 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.mic_rounded),
-            label: 'التلاوة',
+            label: 'المصحف المعلم',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.more_horiz_rounded),
@@ -87,6 +90,7 @@ class _DashboardTabState extends State<_DashboardTab> {
     final history = context.watch<RecitationHistoryService>();
     final schedule = context.watch<ScheduleService>();
     final quran = context.watch<QuranService>();
+    final khatmahService = context.watch<KhatmahService>();
 
     return Scaffold(
       backgroundColor: QuranyTheme.background,
@@ -172,98 +176,75 @@ class _DashboardTabState extends State<_DashboardTab> {
               ),
             ),
 
-          // Quick Actions
+          // Khatmah Tracking
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'الوصول السريع',
-                    textAlign: TextAlign.start,
-                    textDirection: TextDirection.rtl,
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: QuranyTheme.darkGreen,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  GridView.count(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 3,
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 0.85,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _ActionCard(
-                        icon: Icons.mic_rounded,
-                        title: 'تلاوة حرة',
-                        subtitle: 'سجل تلاوتك',
-                        color: QuranyTheme.primaryGreen,
-                        onTap: () => Navigator.pushNamed(
-                          context,
-                          AppRoutes.surahList,
-                          arguments: {'selectForRecitation': true, 'mode': 'free'},
+                      const Text(
+                        'ختمة القراءة',
+                        textAlign: TextAlign.start,
+                        textDirection: TextDirection.rtl,
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: QuranyTheme.darkGreen,
                         ),
                       ),
-                      _ActionCard(
-                        icon: Icons.school_rounded,
-                        title: 'تحفيظ',
-                        subtitle: 'احفظ آية بآية',
-                        color: const Color(0xFF1565C0),
-                        onTap: () => Navigator.pushNamed(
-                          context,
-                          AppRoutes.surahList,
-                          arguments: {'selectForRecitation': true, 'mode': 'tahfeez'},
+                      if (!khatmahService.hasActiveKhatmah)
+                        TextButton(
+                          onPressed: () => Navigator.pushNamed(context, AppRoutes.createKhatmah),
+                          child: const Text('إنشاء ختمة', style: TextStyle(fontWeight: FontWeight.bold)),
+                        )
+                      else
+                        TextButton(
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('إلغاء الختمة؟'),
+                                content: const Text('هل تريد إلغاء ختمة القراءة الحالية؟'),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('تراجع')),
+                                  TextButton(
+                                    onPressed: () {
+                                      khatmahService.clearKhatmah();
+                                      Navigator.pop(ctx);
+                                    },
+                                    child: const Text('إلغاء', style: TextStyle(color: QuranyTheme.errorRed)),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                          child: const Text('إلغاء الختمة', style: TextStyle(color: QuranyTheme.errorRed)),
                         ),
-                      ),
-                      _ActionCard(
-                        icon: Icons.record_voice_over_rounded,
-                        title: 'تسميع',
-                        subtitle: 'سمّع ما حفظت',
-                        color: const Color(0xFF6A1B9A),
-                        onTap: () => Navigator.pushNamed(
-                          context,
-                          AppRoutes.surahList,
-                          arguments: {'selectForRecitation': true, 'mode': 'tasmee3'},
-                        ),
-                      ),
-                      _ActionCard(
-                        icon: Icons.psychology_rounded,
-                        title: 'مراجعة الحفظ',
-                        subtitle: 'اختبر حفظك',
-                        color: QuranyTheme.primaryGold,
-                        onTap: () => Navigator.pushNamed(
-                          context,
-                          AppRoutes.surahList,
-                          arguments: {'selectForRecitation': true, 'mode': 'memorization'},
-                        ),
-                      ),
-                      _ActionCard(
-                        icon: Icons.schedule_rounded,
-                        title: 'جدول التلاوة',
-                        subtitle: 'نظم أوردك',
-                        color: const Color(0xFF00897B),
-                        onTap: () => Navigator.pushNamed(
-                          context,
-                          AppRoutes.schedule,
-                        ),
-                      ),
-                      _ActionCard(
-                        icon: Icons.menu_book_rounded,
-                        title: 'قراءة القرآن',
-                        subtitle: 'المصحف الشريف',
-                        color: const Color(0xFF1565C0),
-                        onTap: () => Navigator.pushNamed(
-                          context,
-                          AppRoutes.surahList,
-                        ),
-                      ),
                     ],
                   ),
+                  const SizedBox(height: 16),
+                  if (khatmahService.hasActiveKhatmah)
+                    _KhatmahTrackingTable(khatmahService.activeKhatmah!)
+                  else
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: QuranyTheme.surface,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: QuranyTheme.border),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          'ليس لديك ختمة نشطة الآن.\nاضغط على "إنشاء ختمة" لتبدأ رحلتك.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey, height: 1.5),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -1139,6 +1120,122 @@ class _TodayScheduleCard extends StatelessWidget {
   }
 }
 
+class _KhatmahTrackingTable extends StatelessWidget {
+  final KhatmahPlan plan;
+
+  const _KhatmahTrackingTable(this.plan);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: QuranyTheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: QuranyTheme.border),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('التقدم الكلي', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${(plan.progressPercentage * 100).toStringAsFixed(1)}%',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: QuranyTheme.primaryGreen),
+                    ),
+                  ],
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    const Text('الصفحة الحالية', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${plan.currentPage} / 604',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          LinearProgressIndicator(
+            value: plan.progressPercentage,
+            backgroundColor: QuranyTheme.border,
+            valueColor: const AlwaysStoppedAnimation<Color>(QuranyTheme.primaryGreen),
+            minHeight: 6,
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      plan.isOnTrack ? Icons.check_circle : Icons.warning_rounded,
+                      color: plan.isOnTrack ? QuranyTheme.primaryGreen : QuranyTheme.errorRed,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      plan.isOnTrack ? 'أنت على المسار الصحيح' : 'أنت متأخر عن خطتك',
+                      style: TextStyle(
+                        color: plan.isOnTrack ? QuranyTheme.primaryGreen : QuranyTheme.errorRed,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  'الهدف: ${plan.pagesPerDay} صفحة/يوم',
+                  style: const TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          InkWell(
+            onTap: () {
+              Navigator.pushNamed(
+                context,
+                AppRoutes.mushafReader,
+                arguments: {'initialPage': plan.currentPage},
+              );
+            },
+            borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              alignment: Alignment.center,
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.menu_book, color: QuranyTheme.primaryGreen),
+                  SizedBox(width: 8),
+                  Text(
+                    'متابعة القراءة',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: QuranyTheme.primaryGreen,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ─────────────────── Quran Tab ───────────────────
 class _QuranTab extends StatelessWidget {
   const _QuranTab();
@@ -1177,89 +1274,98 @@ class _QuranTab extends StatelessWidget {
   }
 }
 
-// ─────────────────── Recite Tab ───────────────────
-class _ReciteTab extends StatelessWidget {
-  const _ReciteTab();
+// ─────────────────── Mushaf Muallim Tab ───────────────────
+class _MushafMuallimTab extends StatelessWidget {
+  const _MushafMuallimTab();
 
   @override
   Widget build(BuildContext context) {
+    final learningPlan = context.watch<LearningPlanService>();
+    final bool hasActivePlan = learningPlan.hasActivePlan;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('التلاوة')),
+      appBar: AppBar(
+        title: const Text('المصحف المعلم'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Row(
+                    children: [
+                      Icon(Icons.info_outline, color: QuranyTheme.primaryGreen),
+                      SizedBox(width: 8),
+                      Text('عن المصحف المعلم'),
+                    ],
+                  ),
+                  content: const Text(
+                    'المصحف المعلم هو نظام متكامل يساعدك على الحفظ والمراجعة من خلال وضع خطة مخصصة لك.\n\n'
+                    'اختر "خطة جديدة" لبدء رحلتك مع القرآن، أو "تعلم حر" للتلاوة بدون التزام بخطة.',
+                    style: TextStyle(height: 1.5),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('فهمت'),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Icon(
-              Icons.mic_rounded,
+              Icons.auto_stories_rounded,
               size: 80,
               color: QuranyTheme.primaryGreen,
             ),
             const SizedBox(height: 24),
             const Text(
-              'اختر وضع التلاوة',
+              'اختر مسارك',
+              textAlign: TextAlign.center,
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 32),
 
-            // Free recitation
+            // Track Plan
+            if (hasActivePlan)
+              _RecitationModeCard(
+                icon: Icons.track_changes_rounded,
+                title: 'متابعة الخطة',
+                description: 'أكمل وردك اليومي حسب خطتك',
+                color: const Color(0xFF1565C0),
+                onTap: () => Navigator.pushNamed(context, AppRoutes.trackPlan),
+              ),
+            if (hasActivePlan) const SizedBox(height: 16),
+
+            // New Plan
             _RecitationModeCard(
-              icon: Icons.mic,
-              title: 'تلاوة حرة',
-              description:
-                  'سجل تلاوتك واحصل على تقييم فوري مع تحديد الأخطاء',
+              icon: Icons.add_task_rounded,
+              title: 'خطة جديدة',
+              description: 'أنشئ خطة قراءة أو حفظ جديدة من سورة إلى سورة',
               color: QuranyTheme.primaryGreen,
+              onTap: () => Navigator.pushNamed(context, AppRoutes.createPlan),
+            ),
+            const SizedBox(height: 16),
+
+            // Free Learning
+            _RecitationModeCard(
+              icon: Icons.mic_rounded,
+              title: 'تعلم حر',
+              description: 'اختر أي سورة وتلاوتها بدون تتبع في الخطة',
+              color: const Color(0xFFF57C00),
               onTap: () => Navigator.pushNamed(
                 context,
                 AppRoutes.surahList,
                 arguments: {'selectForRecitation': true, 'mode': 'free'},
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Tahfeez mode
-            _RecitationModeCard(
-              icon: Icons.school_rounded,
-              title: 'تحفيظ',
-              description:
-                  'احفظ آية بآية مع إمكانية إخفاء النص لاختبار نفسك',
-              color: const Color(0xFF1565C0),
-              onTap: () => Navigator.pushNamed(
-                context,
-                AppRoutes.surahList,
-                arguments: {'selectForRecitation': true, 'mode': 'tahfeez'},
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Tasmee3 mode
-            _RecitationModeCard(
-              icon: Icons.record_voice_over_rounded,
-              title: 'تسميع',
-              description:
-                  'سمّع ما حفظت — يظهر النص مباشرة أثناء القراءة',
-              color: const Color(0xFF6A1B9A),
-              onTap: () => Navigator.pushNamed(
-                context,
-                AppRoutes.surahList,
-                arguments: {'selectForRecitation': true, 'mode': 'tasmee3'},
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Memorization review
-            _RecitationModeCard(
-              icon: Icons.psychology,
-              title: 'مراجعة الحفظ',
-              description:
-                  'اختبر حفظك للسور بدون النظر إلى النص',
-              color: QuranyTheme.primaryGold,
-              onTap: () => Navigator.pushNamed(
-                context,
-                AppRoutes.surahList,
-                arguments: {
-                  'selectForRecitation': true,
-                  'mode': 'memorization',
-                },
               ),
             ),
           ],

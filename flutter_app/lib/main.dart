@@ -13,6 +13,9 @@ import 'services/recitation_history_service.dart';
 import 'services/recitation_api_service.dart';
 import 'services/schedule_service.dart';
 import 'services/notification_service.dart';
+import 'services/learning_plan_service.dart';
+import 'services/khatmah_service.dart';
+import 'services/qiraat_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,6 +48,9 @@ class QuranyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => BookmarkService(prefs)),
         ChangeNotifierProvider(create: (_) => RecitationHistoryService(prefs)),
         ChangeNotifierProvider(create: (_) => ScheduleService(prefs)),
+        ChangeNotifierProvider(create: (_) => LearningPlanService(prefs)),
+        ChangeNotifierProvider(create: (_) => KhatmahService(prefs)),
+        ChangeNotifierProvider(create: (_) => QiraatService(prefs)),
         Provider(
           create: (_) => RecitationApiService(),
           dispose: (_, service) => service.dispose(),

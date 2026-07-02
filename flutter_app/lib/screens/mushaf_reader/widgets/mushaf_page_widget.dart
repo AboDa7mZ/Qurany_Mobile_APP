@@ -54,6 +54,7 @@ class MushafPageWidget extends StatelessWidget {
   final double fontSize;
   final String fontFamily;
   final String? selectedVerseKey;
+  final bool hideAyahs;
   final void Function(MushafWord word)? onWordTap;
 
   const MushafPageWidget({
@@ -62,6 +63,7 @@ class MushafPageWidget extends StatelessWidget {
     required this.fontSize,
     required this.fontFamily,
     this.selectedVerseKey,
+    this.hideAyahs = false,
     this.onWordTap,
   });
 
@@ -87,6 +89,7 @@ class MushafPageWidget extends StatelessWidget {
               fontSize: fontSize,
               fontFamily: fontFamily,
               textColor: textColor,
+              hideAyahs: hideAyahs,
               selectedVerseKey: selectedVerseKey,
               onWordTap: onWordTap,
             ),
@@ -195,6 +198,7 @@ class _MushafLineWidget extends StatelessWidget {
   final double fontSize;
   final String fontFamily;
   final Color textColor;
+  final bool hideAyahs;
   final String? selectedVerseKey;
   final void Function(MushafWord word)? onWordTap;
 
@@ -203,6 +207,7 @@ class _MushafLineWidget extends StatelessWidget {
     required this.fontSize,
     required this.fontFamily,
     required this.textColor,
+    this.hideAyahs = false,
     this.selectedVerseKey,
     this.onWordTap,
   });
@@ -298,7 +303,7 @@ class _MushafLineWidget extends StatelessWidget {
                   fontSize: fit.fontSize,
                   horizontalMargin: fit.wordMargin,
                   fontFamily: fontFamily,
-                  textColor: textColor,
+                  textColor: hideAyahs ? Colors.transparent : textColor,
                   isHighlighted: selectedVerseKey == word.verseKey,
                   onTap: onWordTap == null ? null : () => onWordTap!(word),
                 ),

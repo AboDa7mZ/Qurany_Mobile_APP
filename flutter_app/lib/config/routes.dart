@@ -14,6 +14,9 @@ import '../screens/bookmarks/bookmarks_screen.dart';
 import '../screens/history/history_screen.dart';
 import '../screens/progress/progress_screen.dart';
 import '../screens/settings/settings_screen.dart';
+import '../screens/learning_plan/create_plan_screen.dart';
+import '../screens/learning_plan/track_plan_screen.dart';
+import '../screens/khatmah/create_khatmah_screen.dart';
 
 class AppRoutes {
   static const String splash = '/';
@@ -31,6 +34,9 @@ class AppRoutes {
   static const String history = '/history';
   static const String progress = '/progress';
   static const String settings = '/settings';
+  static const String createPlan = '/create-plan';
+  static const String trackPlan = '/track-plan';
+  static const String createKhatmah = '/create-khatmah';
 
   static Route<dynamic> generateRoute(RouteSettings settings) {
     switch (settings.name) {
@@ -90,6 +96,12 @@ class AppRoutes {
         return _slideRoute(const ProgressScreen(), settings);
       case AppRoutes.settings:
         return _slideRoute(const SettingsScreen(), settings);
+      case AppRoutes.createPlan:
+        return _slideRoute(const CreatePlanScreen(), settings);
+      case AppRoutes.trackPlan:
+        return _slideRoute(const TrackPlanScreen(), settings);
+      case AppRoutes.createKhatmah:
+        return _slideRoute(const CreateKhatmahScreen(), settings);
       default:
         return _fadeRoute(const HomeScreen(), settings);
     }

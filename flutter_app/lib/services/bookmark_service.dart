@@ -40,16 +40,33 @@ class BookmarkService extends ChangeNotifier {
 
   Future<void> removeBookmark(int surahNumber, int verseNumber) async {
     _bookmarks.removeWhere(
-      (b) => b.surahNumber == surahNumber && b.verseNumber == verseNumber,
+      (b) => b.surahNumber == surahNumber && b.verseNumber == verseNumber && b.pageNumber == null,
     );
+    await _saveBookmarks();
+    notifyListeners();
+  }
+
+  Future<void> addPageBookmark(Bookmark bookmark) async {
+    _bookmarks.removeWhere((b) => b.pageNumber == bookmark.pageNumber);
+    _bookmarks.insert(0, bookmark);
+    await _saveBookmarks();
+    notifyListeners();
+  }
+
+  Future<void> removePageBookmark(int pageNumber) async {
+    _bookmarks.removeWhere((b) => b.pageNumber == pageNumber);
     await _saveBookmarks();
     notifyListeners();
   }
 
   bool isBookmarked(int surahNumber, int verseNumber) {
     return _bookmarks.any(
-      (b) => b.surahNumber == surahNumber && b.verseNumber == verseNumber,
+      (b) => b.surahNumber == surahNumber && b.verseNumber == verseNumber && b.pageNumber == null,
     );
+  }
+
+  bool isPageBookmarked(int pageNumber) {
+    return _bookmarks.any((b) => b.pageNumber == pageNumber);
   }
 
   Future<void> clearAll() async {
