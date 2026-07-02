@@ -64,3 +64,34 @@ def test_register_and_login(client: TestClient) -> None:
     )
     assert login_resp.status_code == 200
     assert login_resp.json()["access_token"]
+
+
+def test_register_rejects_duplicate_email(client: TestClient) -> None:
+    payload = {
+        "email": "dup@qurany.app",
+        "password": "secret12",
+        "full_name": "Dup",
+    }
+    assert client.post("/api/v1/auth/register", json=payload).status_code == 201
+    assert client.post("/api/v1/auth/register", json=payload).status_code == 400
+
+
+def test_login_rejects_wrong_password(client: TestClient) -> None:
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "wrongpass@qurany.app",
+            "password": "secret12",
+            "full_name": "User",
+        },
+    )
+    login_resp = client.post(
+        "/api/v1/auth/login",
+        data={"username": "wrongpass@qurany.app", "password": "badpass"},
+    )
+    assert login_resp.status_code == 401
+
+
+def test_sync_routes_removed(client: TestClient) -> None:
+    assert client.post("/api/v1/sync/push", json={}).status_code == 404
+    assert client.get("/api/v1/sync/pull").status_code == 404
