@@ -93,7 +93,7 @@ class _CreateKhatmahScreenState extends State<CreateKhatmahScreen> {
   }
 
   void _createKhatmah() async {
-    await context.read<KhatmahService>().createKhatmah(_targetDays);
+    await context.read<KhatmahService>().createKhatmah(targetDays: _targetDays);
     if (!mounted) return;
     
     Navigator.pop(context);

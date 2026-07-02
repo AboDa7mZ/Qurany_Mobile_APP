@@ -27,8 +27,16 @@ class KhatmahService extends ChangeNotifier {
     }
   }
 
-  Future<void> createKhatmah(int targetDays) async {
-    _activeKhatmah = KhatmahPlan(targetDays: targetDays);
+  Future<void> createKhatmah({
+    int? targetDays,
+    int startPage = 1,
+    int endPage = 604,
+  }) async {
+    _activeKhatmah = KhatmahPlan(
+      targetDays: targetDays,
+      startPage: startPage,
+      endPage: endPage,
+    );
     await _saveKhatmah();
     notifyListeners();
   }

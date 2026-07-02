@@ -10,6 +10,8 @@ class RecitationSchedule {
   final String mode; // 'free' or 'memorization'
   final bool enabled;
   final bool repeat; // repeats weekly or one-time
+  final int? endSurahNumber;
+  final String? endSurahName;
   final DateTime createdAt;
 
   const RecitationSchedule({
@@ -23,8 +25,12 @@ class RecitationSchedule {
     required this.mode,
     this.enabled = true,
     this.repeat = true,
+    this.endSurahNumber,
+    this.endSurahName,
     required this.createdAt,
   });
+
+  bool get isRange => endSurahNumber != null;
 
   RecitationSchedule copyWith({
     String? title,
@@ -36,6 +42,8 @@ class RecitationSchedule {
     String? mode,
     bool? enabled,
     bool? repeat,
+    int? endSurahNumber,
+    String? endSurahName,
   }) {
     return RecitationSchedule(
       id: id,
@@ -48,6 +56,8 @@ class RecitationSchedule {
       mode: mode ?? this.mode,
       enabled: enabled ?? this.enabled,
       repeat: repeat ?? this.repeat,
+      endSurahNumber: endSurahNumber ?? this.endSurahNumber,
+      endSurahName: endSurahName ?? this.endSurahName,
       createdAt: createdAt,
     );
   }
@@ -64,6 +74,8 @@ class RecitationSchedule {
       mode: json['mode'] ?? 'free',
       enabled: json['enabled'] ?? true,
       repeat: json['repeat'] ?? true,
+      endSurahNumber: json['endSurahNumber'],
+      endSurahName: json['endSurahName'],
       createdAt: DateTime.parse(
         json['createdAt'] ?? DateTime.now().toIso8601String(),
       ),
@@ -81,6 +93,8 @@ class RecitationSchedule {
         'mode': mode,
         'enabled': enabled,
         'repeat': repeat,
+        'endSurahNumber': endSurahNumber,
+        'endSurahName': endSurahName,
         'createdAt': createdAt.toIso8601String(),
       };
 

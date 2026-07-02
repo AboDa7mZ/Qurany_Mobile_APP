@@ -105,15 +105,24 @@ class _CreatePlanScreenState extends State<CreatePlanScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Duration Slider
-            Text('المدة: $_totalDays يوم', style: const TextStyle(fontSize: 16)),
-            Slider(
-              value: _totalDays.toDouble(),
-              min: 1,
-              max: 365,
-              divisions: 364,
-              activeColor: QuranyTheme.primaryGreen,
-              onChanged: (val) => setState(() => _totalDays = val.toInt()),
+            // Duration Input
+            TextFormField(
+              initialValue: _totalDays.toString(),
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: 'المدة (بالأيام)',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: QuranyTheme.primaryGreen.withValues(alpha: 0.3)),
+                ),
+                suffixText: 'يوم',
+              ),
+              onChanged: (val) {
+                final intVal = int.tryParse(val);
+                if (intVal != null && intVal > 0) {
+                  setState(() => _totalDays = intVal);
+                }
+              },
             ),
             
             const SizedBox(height: 48),

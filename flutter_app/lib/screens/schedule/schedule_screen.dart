@@ -6,6 +6,8 @@ import '../../config/constants.dart';
 import '../../config/routes.dart';
 import '../../models/schedule.dart';
 import '../../services/schedule_service.dart';
+import '../../services/khatmah_service.dart';
+import '../../config/mushaf_pages.dart';
 import '../../widgets/app_icons.dart';
 
 class ScheduleScreen extends StatelessWidget {
@@ -506,10 +508,12 @@ class _AddScheduleSheet extends StatefulWidget {
 
 class _AddScheduleSheetState extends State<_AddScheduleSheet> {
   final _titleController = TextEditingController(text: 'ورد التلاوة');
+  bool _isRange = false;
   int _selectedSurah = 1;
+  int _endSelectedSurah = 114;
   int _dayOfWeek = 0; // daily
   TimeOfDay _time = const TimeOfDay(hour: 6, minute: 0);
-  String _mode = 'free';
+  String _mode = 'ختمة قراءة';
 
   @override
   void dispose() {
@@ -566,8 +570,31 @@ class _AddScheduleSheetState extends State<_AddScheduleSheet> {
             const SizedBox(height: 16),
 
             // Surah selector
-            const Text('اختر السورة',
-                style: TextStyle(fontWeight: FontWeight.bold)),
+            Row(
+              children: [
+                Expanded(
+                  child: RadioListTile<bool>(
+                    title: const Text('سورة واحدة', style: TextStyle(fontSize: 14)),
+                    value: false,
+                    groupValue: _isRange,
+                    onChanged: (v) => setState(() => _isRange = v!),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+                Expanded(
+                  child: RadioListTile<bool>(
+                    title: const Text('نطاق سور', style: TextStyle(fontSize: 14)),
+                    value: true,
+                    groupValue: _isRange,
+                    onChanged: (v) => setState(() => _isRange = v!),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(_isRange ? 'من سورة' : 'اختر السورة',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -587,10 +614,46 @@ class _AddScheduleSheetState extends State<_AddScheduleSheet> {
                           '${i + 1}. ${AppConstants.surahNames[i]}'),
                     );
                   }),
-                  onChanged: (v) => setState(() => _selectedSurah = v ?? 1),
+                  onChanged: (v) {
+                    setState(() {
+                      _selectedSurah = v ?? 1;
+                      if (_isRange && _endSelectedSurah < _selectedSurah) {
+                        _endSelectedSurah = _selectedSurah;
+                      }
+                    });
+                  },
                 ),
               ),
             ),
+            if (_isRange) ...[
+              const SizedBox(height: 16),
+              const Text('إلى سورة',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  border: Border.all(
+                      color: QuranyTheme.primaryGreen.withValues(alpha: 0.3)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<int>(
+                    value: _endSelectedSurah,
+                    isExpanded: true,
+                    items: List.generate(114 - _selectedSurah + 1, (i) {
+                      final surahIndex = _selectedSurah + i;
+                      return DropdownMenuItem(
+                        value: surahIndex,
+                        child: Text(
+                            '$surahIndex. ${AppConstants.surahNames[surahIndex - 1]}'),
+                      );
+                    }),
+                    onChanged: (v) => setState(() => _endSelectedSurah = v ?? 114),
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
 
             // Day selector
@@ -680,19 +743,19 @@ class _AddScheduleSheetState extends State<_AddScheduleSheet> {
               children: [
                 Expanded(
                   child: _ModeOption(
-                    icon: Icons.mic,
-                    label: 'تلاوة حرة',
-                    selected: _mode == 'free',
-                    onTap: () => setState(() => _mode = 'free'),
+                    icon: Icons.menu_book,
+                    label: 'ختمة قراءة',
+                    selected: _mode == 'ختمة قراءة',
+                    onTap: () => setState(() => _mode = 'ختمة قراءة'),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: _ModeOption(
-                    icon: Icons.psychology,
-                    label: 'مراجعة حفظ',
-                    selected: _mode == 'memorization',
-                    onTap: () => setState(() => _mode = 'memorization'),
+                    icon: Icons.mic,
+                    label: 'ختمة تسميع',
+                    selected: _mode == 'ختمة تسميع',
+                    onTap: () => setState(() => _mode = 'ختمة تسميع'),
                   ),
                 ),
               ],
@@ -719,6 +782,8 @@ class _AddScheduleSheetState extends State<_AddScheduleSheet> {
 
   void _addSchedule() {
     final service = context.read<ScheduleService>();
+    final khatmahService = context.read<KhatmahService>();
+    
     final schedule = RecitationSchedule(
       id: const Uuid().v4(),
       title: _titleController.text.trim().isEmpty
@@ -726,6 +791,8 @@ class _AddScheduleSheetState extends State<_AddScheduleSheet> {
           : _titleController.text.trim(),
       surahNumber: _selectedSurah,
       surahName: AppConstants.surahNames[_selectedSurah - 1],
+      endSurahNumber: _isRange ? _endSelectedSurah : null,
+      endSurahName: _isRange ? AppConstants.surahNames[_endSelectedSurah - 1] : null,
       dayOfWeek: _dayOfWeek,
       hour: _time.hour,
       minute: _time.minute,
@@ -733,6 +800,16 @@ class _AddScheduleSheetState extends State<_AddScheduleSheet> {
       createdAt: DateTime.now(),
     );
     service.addSchedule(schedule);
+
+    // Link it to Khatmah tracking (Wird)
+    final startPage = MushafPageIndex.firstPage(_selectedSurah);
+    final endPage = _isRange ? MushafPageIndex.lastPage(_endSelectedSurah) : MushafPageIndex.lastPage(_selectedSurah);
+    
+    khatmahService.createKhatmah(
+      startPage: startPage,
+      endPage: endPage,
+    );
+
     Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(

@@ -77,7 +77,9 @@ class BookmarksScreen extends StatelessWidget {
                 final bookmark = bookmarks.bookmarks[index];
                 return Dismissible(
                   key: Key(
-                    '${bookmark.surahNumber}_${bookmark.verseNumber}',
+                    bookmark.pageNumber != null
+                        ? 'page_${bookmark.pageNumber}'
+                        : '${bookmark.surahNumber}_${bookmark.verseNumber}',
                   ),
                   direction: DismissDirection.endToStart,
                   background: Container(
@@ -90,10 +92,14 @@ class BookmarksScreen extends StatelessWidget {
                     child: const Icon(Icons.delete, color: Colors.white),
                   ),
                   onDismissed: (_) {
-                    bookmarks.removeBookmark(
-                      bookmark.surahNumber,
-                      bookmark.verseNumber,
-                    );
+                    if (bookmark.pageNumber != null) {
+                      bookmarks.removePageBookmark(bookmark.pageNumber!);
+                    } else {
+                      bookmarks.removeBookmark(
+                        bookmark.surahNumber,
+                        bookmark.verseNumber,
+                      );
+                    }
                   },
                   child: Card(
                     margin: const EdgeInsets.only(bottom: 8),
@@ -111,25 +117,57 @@ class BookmarksScreen extends StatelessWidget {
                         ),
                       ),
                       title: Text(
-                        'سورة ${bookmark.surahName}',
+                        bookmark.pageNumber != null
+                            ? 'سورة ${bookmark.surahName} - صفحة ${bookmark.pageNumber}'
+                            : 'سورة ${bookmark.surahName}',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
-                      subtitle: Text(
-                        'الآية ${bookmark.verseNumber} • ${_formatDate(bookmark.dateTime)}',
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            bookmark.pageNumber != null
+                                ? 'تاريخ الحفظ: ${_formatDate(bookmark.dateTime)}'
+                                : 'الآية ${bookmark.verseNumber} • ${_formatDate(bookmark.dateTime)}',
+                          ),
+                          if (bookmark.note != null && bookmark.note!.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              bookmark.note!,
+                              style: TextStyle(
+                                color: Colors.grey.shade700,
+                                fontStyle: FontStyle.italic,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ],
                       ),
+                      isThreeLine: bookmark.note != null && bookmark.note!.isNotEmpty,
                       trailing: AppIcons.forwardChevron(
                         size: 16,
                         color: QuranyTheme.primaryGreen,
                       ),
                       onTap: () {
-                        Navigator.pushNamed(
-                          context,
-                          AppRoutes.quranReader,
-                          arguments: {
-                            'surahNumber': bookmark.surahNumber,
-                            'surahName': bookmark.surahName,
-                          },
-                        );
+                        if (bookmark.pageNumber != null) {
+                           Navigator.pushNamed(
+                             context,
+                             AppRoutes.mushafReader,
+                             arguments: {
+                               'initialPage': bookmark.pageNumber,
+                             },
+                           );
+                        } else {
+                          Navigator.pushNamed(
+                            context,
+                            AppRoutes.mushafReader,
+                            arguments: {
+                              'initialPage': null, // Need to handle verse key
+                              'initialVerseKey': '${bookmark.surahNumber}:${bookmark.verseNumber}',
+                            },
+                          );
+                        }
                       },
                     ),
                   ),

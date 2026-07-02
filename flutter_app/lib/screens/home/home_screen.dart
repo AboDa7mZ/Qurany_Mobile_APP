@@ -51,7 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.mic_rounded),
-            label: 'المصحف المعلم',
+            label: 'المعلم',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.more_horiz_rounded),
@@ -187,7 +187,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'ختمة القراءة',
+                        'الورد',
                         textAlign: TextAlign.start,
                         textDirection: TextDirection.rtl,
                         style: TextStyle(
@@ -196,19 +196,14 @@ class _DashboardTabState extends State<_DashboardTab> {
                           color: QuranyTheme.darkGreen,
                         ),
                       ),
-                      if (!khatmahService.hasActiveKhatmah)
-                        TextButton(
-                          onPressed: () => Navigator.pushNamed(context, AppRoutes.createKhatmah),
-                          child: const Text('إنشاء ختمة', style: TextStyle(fontWeight: FontWeight.bold)),
-                        )
-                      else
+                      if (khatmahService.hasActiveKhatmah)
                         TextButton(
                           onPressed: () {
                             showDialog(
                               context: context,
                               builder: (ctx) => AlertDialog(
-                                title: const Text('إلغاء الختمة؟'),
-                                content: const Text('هل تريد إلغاء ختمة القراءة الحالية؟'),
+                                title: const Text('إلغاء الورد؟'),
+                                content: const Text('هل تريد إلغاء الورد الحالي؟'),
                                 actions: [
                                   TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('تراجع')),
                                   TextButton(
@@ -222,7 +217,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                               ),
                             );
                           },
-                          child: const Text('إلغاء الختمة', style: TextStyle(color: QuranyTheme.errorRed)),
+                          child: const Text('إلغاء الورد', style: TextStyle(color: QuranyTheme.errorRed)),
                         ),
                     ],
                   ),
@@ -231,6 +226,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                     _KhatmahTrackingTable(khatmahService.activeKhatmah!)
                   else
                     Container(
+                      width: double.infinity,
                       padding: const EdgeInsets.all(24),
                       decoration: BoxDecoration(
                         color: QuranyTheme.surface,
@@ -239,7 +235,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                       ),
                       child: const Center(
                         child: Text(
-                          'ليس لديك ختمة نشطة الآن.\nاضغط على "إنشاء ختمة" لتبدأ رحلتك.',
+                          'ليس لديك ختمة نشطة الآن.',
                           textAlign: TextAlign.center,
                           style: TextStyle(color: Colors.grey, height: 1.5),
                         ),
@@ -531,14 +527,26 @@ class _ContinueReadingCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => Navigator.pushNamed(
-          context,
-          AppRoutes.quranReader,
-          arguments: {
-            'surahNumber': surahNumber,
-            'surahName': surahName,
-          },
-        ),
+        onTap: () async {
+          final quranService = context.read<QuranService>();
+          final verses = await quranService.getSurahVerses(surahNumber);
+          final ayahToRead = versesRead + 1;
+          final verse = verses.firstWhere(
+            (v) => v.verseNumber == ayahToRead,
+            orElse: () => verses.first,
+          );
+          if (context.mounted) {
+            Navigator.pushNamed(
+              context,
+              AppRoutes.mushafReader,
+              arguments: {
+                'initialPage': verse.pageNumber,
+                'initialVerseKey': '$surahNumber:$ayahToRead',
+                'surahNumber': surahNumber,
+              },
+            );
+          }
+        },
         borderRadius: BorderRadius.circular(QuranyTheme.cardRadius),
         child: Ink(
           decoration: BoxDecoration(
@@ -926,14 +934,18 @@ class _VerseOfTheDayCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(20),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(20),
-                      onTap: () => Navigator.pushNamed(
-                        context,
-                        AppRoutes.quranReader,
-                        arguments: {
-                          'surahNumber': verse!.surahNumber,
-                          'surahName': surahName,
-                        },
-                      ),
+                      onTap: () {
+                        if (verse == null) return;
+                        Navigator.pushNamed(
+                          context,
+                          AppRoutes.mushafReader,
+                          arguments: {
+                            'initialPage': verse!.pageNumber,
+                            'initialVerseKey': '${verse!.surahNumber}:${verse!.verseNumber}',
+                            'surahNumber': verse!.surahNumber,
+                          },
+                        );
+                      },
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 16,
@@ -1157,7 +1169,7 @@ class _KhatmahTrackingTable extends StatelessWidget {
                     const Text('الصفحة الحالية', style: TextStyle(color: Colors.grey, fontSize: 13)),
                     const SizedBox(height: 4),
                     Text(
-                      '${plan.currentPage} / 604',
+                      '${plan.currentPage} / ${plan.endPage}',
                       style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                   ],
@@ -1171,35 +1183,7 @@ class _KhatmahTrackingTable extends StatelessWidget {
             valueColor: const AlwaysStoppedAnimation<Color>(QuranyTheme.primaryGreen),
             minHeight: 6,
           ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      plan.isOnTrack ? Icons.check_circle : Icons.warning_rounded,
-                      color: plan.isOnTrack ? QuranyTheme.primaryGreen : QuranyTheme.errorRed,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      plan.isOnTrack ? 'أنت على المسار الصحيح' : 'أنت متأخر عن خطتك',
-                      style: TextStyle(
-                        color: plan.isOnTrack ? QuranyTheme.primaryGreen : QuranyTheme.errorRed,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-                Text(
-                  'الهدف: ${plan.pagesPerDay} صفحة/يوم',
-                  style: const TextStyle(color: Colors.grey, fontSize: 13),
-                ),
-              ],
-            ),
-          ),
+          const SizedBox(height: 16),
           const Divider(height: 1),
           InkWell(
             onTap: () {

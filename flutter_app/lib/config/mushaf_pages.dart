@@ -35,6 +35,12 @@ class MushafPageIndex {
     return _startPage[surahNumber - 1];
   }
 
+  /// Returns the last mushaf page number that a Surah appears on.
+  static int lastPage(int surahNumber) {
+    if (surahNumber == 114) return totalPages;
+    return firstPage(surahNumber + 1) - 1;
+  }
+
   /// Returns the primary Surah number (1-114) that starts on or before the given page.
   static int surahForPage(int pageNumber) {
     for (int i = _startPage.length - 1; i >= 0; i--) {

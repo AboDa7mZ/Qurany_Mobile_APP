@@ -98,7 +98,7 @@ class _RecitationScreenState extends State<RecitationScreen>
     _selectedSurahName =
         widget.surahName ?? AppConstants.surahNames[_selectedSurah - 1];
     _showReference = widget.mode == 'free' || widget.mode == 'tahfeez';
-    _verseTextVisible = widget.mode != 'tahfeez';
+    _verseTextVisible = widget.mode != 'tasmee3';
 
     _pulseController = AnimationController(
       vsync: this,
@@ -363,14 +363,15 @@ class _RecitationScreenState extends State<RecitationScreen>
 
       // Listen for completion
       _husaryCompleteSub?.cancel();
-      _husaryCompleteSub = _husaryPlayer.onPlayerComplete.listen((_) {
+      _husaryCompleteSub = _husaryPlayer.onPlayerComplete.listen((_) async {
         if (mounted) {
           setState(() {
             _isPlayingHusary = false;
             _husaryFinished = true;
             _husaryProgress = 1.0;
-            _statusText = 'دورك الآن — اقرأ الآية';
+            _statusText = 'دورك الآن — جاري التسجيل...';
           });
+          await _startRecording();
         }
       });
 
@@ -1644,7 +1645,7 @@ class _RecitationScreenState extends State<RecitationScreen>
                 ),
               ],
             ),
-            child: _buildTahfeezBlankVerse(),
+            child: _buildTahfeezHighlightedVerse(),
           ),
         ),
 

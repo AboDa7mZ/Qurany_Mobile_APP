@@ -42,6 +42,7 @@ Future<void> _pumpPage(
                   page: page,
                   fontSize: fontSize,
                   fontFamily: 'QPCHafs',
+                  onWordTap: (_) {},
                 ),
               ),
             );

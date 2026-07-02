@@ -55,7 +55,9 @@ class MushafPageWidget extends StatelessWidget {
   final String fontFamily;
   final String? selectedVerseKey;
   final bool hideAyahs;
-  final void Function(MushafWord word)? onWordTap;
+  final Set<int> revealedWordIds;
+  final int? activeWordId;
+  final Function(MushafWord) onWordTap;
 
   const MushafPageWidget({
     super.key,
@@ -64,7 +66,9 @@ class MushafPageWidget extends StatelessWidget {
     required this.fontFamily,
     this.selectedVerseKey,
     this.hideAyahs = false,
-    this.onWordTap,
+    this.revealedWordIds = const {},
+    this.activeWordId,
+    required this.onWordTap,
   });
 
   @override
@@ -90,7 +94,9 @@ class MushafPageWidget extends StatelessWidget {
               fontFamily: fontFamily,
               textColor: textColor,
               hideAyahs: hideAyahs,
+              revealedWordIds: revealedWordIds,
               selectedVerseKey: selectedVerseKey,
+              activeWordId: activeWordId,
               onWordTap: onWordTap,
             ),
           SizedBox(height: isFullPage ? 8 : 20),
@@ -199,8 +205,10 @@ class _MushafLineWidget extends StatelessWidget {
   final String fontFamily;
   final Color textColor;
   final bool hideAyahs;
+  final Set<int> revealedWordIds;
   final String? selectedVerseKey;
-  final void Function(MushafWord word)? onWordTap;
+  final int? activeWordId;
+  final Function(MushafWord) onWordTap;
 
   const _MushafLineWidget({
     required this.line,
@@ -208,8 +216,10 @@ class _MushafLineWidget extends StatelessWidget {
     required this.fontFamily,
     required this.textColor,
     this.hideAyahs = false,
+    required this.revealedWordIds,
     this.selectedVerseKey,
-    this.onWordTap,
+    this.activeWordId,
+    required this.onWordTap,
   });
 
   @override
@@ -264,22 +274,11 @@ class _MushafLineWidget extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    // Justify at the word level (flattening across ayah-group boundaries),
-    // not at the ayah-group level: a line that happens to contain only 2-3
-    // ayah endings would otherwise get a couple of huge gaps between those
-    // groups instead of the extra space being shared out evenly between
-    // every word, which is what actually gives a real mushaf's line its
-    // evenly-justified look (and is also how quran.com's own reference
-    // markup behaves - `.line` justifies its words directly).
     final words = line.words;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          // Fitting is computed per-line (not per-page) so every page uses
-          // the same font size; a tight line first gives up its word
-          // spacing before it ever touches font size, so almost every line
-          // renders at exactly [fontSize].
           final fit = _fitLine(
             words: words,
             fontFamily: fontFamily,
@@ -291,10 +290,6 @@ class _MushafLineWidget extends StatelessWidget {
             direction: Axis.horizontal,
             textDirection: TextDirection.rtl,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            // Belt-and-suspenders: clipping (rather than relying solely on
-            // the fitting calculation above) guarantees a stray pixel of
-            // rounding error is invisibly cropped instead of painting
-            // outside the line's bounds.
             clipBehavior: Clip.hardEdge,
             children: [
               for (final word in words)
@@ -303,9 +298,12 @@ class _MushafLineWidget extends StatelessWidget {
                   fontSize: fit.fontSize,
                   horizontalMargin: fit.wordMargin,
                   fontFamily: fontFamily,
-                  textColor: hideAyahs ? Colors.transparent : textColor,
-                  isHighlighted: selectedVerseKey == word.verseKey,
-                  onTap: onWordTap == null ? null : () => onWordTap!(word),
+                  textColor: (hideAyahs && !revealedWordIds.contains(word.id))
+                      ? Colors.transparent 
+                      : textColor,
+                  selectedVerseKey: selectedVerseKey,
+                  activeWordId: activeWordId,
+                  onWordTap: onWordTap,
                 ),
             ],
           );
@@ -322,8 +320,9 @@ class _MushafWordWidget extends StatelessWidget {
   final double horizontalMargin;
   final String fontFamily;
   final Color textColor;
-  final bool isHighlighted;
-  final VoidCallback? onTap;
+  final String? selectedVerseKey;
+  final int? activeWordId;
+  final Function(MushafWord) onWordTap;
 
   const _MushafWordWidget({
     required this.word,
@@ -331,39 +330,43 @@ class _MushafWordWidget extends StatelessWidget {
     required this.horizontalMargin,
     required this.fontFamily,
     required this.textColor,
-    required this.isHighlighted,
-    this.onTap,
+    this.selectedVerseKey,
+    this.activeWordId,
+    required this.onWordTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final isSelected = word.verseKey == selectedVerseKey;
+    final isActive = word.id == activeWordId;
+
     if (word.isAyahMarker) {
       return GestureDetector(
-        onTap: onTap,
+        onTap: () => onWordTap(word),
         child: Container(
           margin: EdgeInsets.symmetric(horizontal: horizontalMargin),
           child: _AyahEndMarker(
             number: word.text,
             fontSize: fontSize,
-            isHighlighted: isHighlighted,
+            isHighlighted: isSelected || isActive,
           ),
         ),
       );
     }
 
     return GestureDetector(
-      onTap: onTap,
+      onTap: () => onWordTap(word),
       child: Container(
         margin: EdgeInsets.symmetric(horizontal: horizontalMargin),
+        decoration: BoxDecoration(
+          color: isActive 
+             ? QuranyTheme.primaryGold.withValues(alpha: 0.3)
+             : (isSelected ? QuranyTheme.accent.withValues(alpha: 0.25) : null),
+          borderRadius: BorderRadius.circular(4),
+        ),
         padding: const EdgeInsets.symmetric(
           horizontal: _wordPadding,
           vertical: 1,
-        ),
-        decoration: BoxDecoration(
-          color: isHighlighted
-              ? QuranyTheme.accent.withValues(alpha: 0.25)
-              : null,
-          borderRadius: BorderRadius.circular(4),
         ),
         child: Text(
           word.text,
