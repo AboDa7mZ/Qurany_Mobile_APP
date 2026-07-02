@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/khatmah_plan.dart';
 
+/// Local-only khatmah plan (SharedPreferences). Not synced to backend.
 class KhatmahService extends ChangeNotifier {
   static const String _storageKey = 'active_khatmah';
   KhatmahPlan? _activeKhatmah;
@@ -12,8 +13,15 @@ class KhatmahService extends ChangeNotifier {
     _loadKhatmah();
   }
 
-  KhatmahPlan? get activeKhatmah => _activeKhatmah;
-  bool get hasActiveKhatmah => _activeKhatmah != null;
+  KhatmahPlan? get activeKhatmah =>
+      _activeKhatmah?.sync.isDeleted == true ? null : _activeKhatmah;
+
+  bool get hasActiveKhatmah => activeKhatmah != null;
+
+  void reloadFromStorage() {
+    _loadKhatmah();
+    notifyListeners();
+  }
 
   void _loadKhatmah() {
     final String? data = _prefs.getString(_storageKey);
@@ -42,9 +50,13 @@ class KhatmahService extends ChangeNotifier {
   }
 
   Future<void> updateProgress(int page) async {
-    if (_activeKhatmah != null && page > _activeKhatmah!.currentPage) {
-      _activeKhatmah!.currentPage = page;
-      _activeKhatmah!.lastReadDate = DateTime.now();
+    if (_activeKhatmah != null &&
+        !_activeKhatmah!.sync.isDeleted &&
+        page > _activeKhatmah!.currentPage) {
+      _activeKhatmah = _activeKhatmah!.copyWith(
+        currentPage: page,
+        lastReadDate: DateTime.now(),
+      );
       await _saveKhatmah();
       notifyListeners();
     }
@@ -52,7 +64,10 @@ class KhatmahService extends ChangeNotifier {
 
   Future<void> _saveKhatmah() async {
     if (_activeKhatmah != null) {
-      await _prefs.setString(_storageKey, json.encode(_activeKhatmah!.toJson()));
+      await _prefs.setString(
+        _storageKey,
+        json.encode(_activeKhatmah!.toJson()),
+      );
     }
   }
 

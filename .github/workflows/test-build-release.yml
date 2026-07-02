@@ -1,0 +1,155 @@
+name: Test, Build & Discord Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: test-build-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-backend:
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run backend tests
+        working-directory: backend
+        run: python -m pytest tests/ -q
+
+  test-flutter:
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.5"
+          channel: stable
+          cache: true
+
+      - name: Install Flutter dependencies
+        working-directory: flutter_app
+        run: flutter pub get
+
+      - name: Run Flutter tests
+        working-directory: flutter_app
+        run: flutter test
+
+  release:
+    needs: [test-backend, test-flutter]
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.5"
+          channel: stable
+          cache: true
+
+      - name: Bump version (build number)
+        id: version
+        working-directory: flutter_app
+        run: |
+          current=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          name="${current%%+*}"
+          build="${current##*+}"
+          new_build=$((build + 1))
+          new_version="${name}+${new_build}"
+
+          sed -i "s/^version: .*/version: ${new_version}/" pubspec.yaml
+          sed -i "s/static const String appVersion = '.*';/static const String appVersion = '${name}';/" lib/config/constants.dart
+
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+          echo "build=${new_build}" >> "$GITHUB_OUTPUT"
+          echo "full=${new_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Flutter dependencies
+        working-directory: flutter_app
+        run: flutter pub get
+
+      - name: Build Android APK (arm64)
+        working-directory: flutter_app
+        run: flutter build apk --release --split-per-abi --target-platform android-arm64
+
+      - name: Upload APK artifact
+        id: apk-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qurany-${{ steps.version.outputs.full }}-arm64
+          path: flutter_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          retention-days: 30
+
+      - name: Notify Discord with artifact download link
+        env:
+          VERSION_FULL: ${{ steps.version.outputs.full }}
+          ARTIFACT_NAME: qurany-${{ steps.version.outputs.full }}-arm64
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ARTIFACTS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_WEBHOOK_URL secret is not set. Add it in GitHub repo Settings > Secrets."
+            exit 1
+          fi
+
+          export VERSION_FULL ARTIFACT_NAME ARTIFACTS_URL RUN_URL
+
+          payload=$(python -c "import json, os; v=os.environ['VERSION_FULL']; artifact=os.environ['ARTIFACT_NAME']; artifacts_url=os.environ['ARTIFACTS_URL']; run_url=os.environ['RUN_URL']; print(json.dumps({'content': f'**Qurany v{v}** — all tests passed ✅\\n\\n• Backend tests: passed\\n• Flutter tests: passed\\n• Tag: \`v{v}\`\\n• **Download APK (artifact):** {artifacts_url}\\n  Artifact name: \`{artifact}\`\\n• Workflow run: {run_url}'}))")
+
+          http_code=$(curl -sS -o /tmp/discord-response.json -w "%{http_code}" \
+            -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d "${payload}")
+
+          echo "Discord HTTP status: ${http_code}"
+          cat /tmp/discord-response.json || true
+
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "Discord notification failed."
+            exit 1
+          fi
+
+          echo "Discord notified with artifact download link."
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add flutter_app/pubspec.yaml flutter_app/lib/config/constants.dart
+          git diff --staged --quiet && exit 0
+          git commit -m "chore: release v${{ steps.version.outputs.full }} [skip ci]"
+          git push
+
+      - name: Create git tag
+        run: |
+          git tag "v${{ steps.version.outputs.full }}"
+          git push origin "v${{ steps.version.outputs.full }}"

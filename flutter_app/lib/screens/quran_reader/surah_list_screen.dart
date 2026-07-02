@@ -7,7 +7,9 @@ import '../../services/qiraat_service.dart';
 import '../../widgets/app_icons.dart';
 
 class SurahListScreen extends StatefulWidget {
-  const SurahListScreen({super.key});
+  final bool embeddedInTab;
+
+  const SurahListScreen({super.key, this.embeddedInTab = false});
 
   @override
   State<SurahListScreen> createState() => _SurahListScreenState();
@@ -51,9 +53,13 @@ class _SurahListScreenState extends State<SurahListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: QuranyTheme.background,
       appBar: AppBar(
         title: Text(_selectForRecitation ? 'اختر السورة' : 'فهرس السور'),
-        leading: AppIcons.backButton(context: context),
+        automaticallyImplyLeading: !widget.embeddedInTab,
+        leading: widget.embeddedInTab
+            ? null
+            : AppIcons.backButton(context: context),
         actions: [
           if (!_selectForRecitation)
             Padding(
@@ -87,9 +93,8 @@ class _SurahListScreenState extends State<SurahListScreen> {
       body: Column(
         children: [
           // Search bar
-          Container(
+          Padding(
             padding: const EdgeInsets.all(16),
-            color: QuranyTheme.primaryGreen.withValues(alpha: 0.05),
             child: TextField(
               controller: _searchController,
               onChanged: (v) => setState(() => _searchQuery = v),
@@ -105,12 +110,6 @@ class _SurahListScreenState extends State<SurahListScreen> {
                         },
                       )
                     : null,
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
               ),
             ),
           ),

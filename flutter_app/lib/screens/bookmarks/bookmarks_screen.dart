@@ -76,11 +76,7 @@ class BookmarksScreen extends StatelessWidget {
               itemBuilder: (context, index) {
                 final bookmark = bookmarks.bookmarks[index];
                 return Dismissible(
-                  key: Key(
-                    bookmark.pageNumber != null
-                        ? 'page_${bookmark.pageNumber}'
-                        : '${bookmark.surahNumber}_${bookmark.verseNumber}',
-                  ),
+                  key: Key(bookmark.id),
                   direction: DismissDirection.endToStart,
                   background: Container(
                     alignment: Alignment.centerLeft,
@@ -163,8 +159,9 @@ class BookmarksScreen extends StatelessWidget {
                             context,
                             AppRoutes.mushafReader,
                             arguments: {
-                              'initialPage': null, // Need to handle verse key
-                              'initialVerseKey': '${bookmark.surahNumber}:${bookmark.verseNumber}',
+                              'surahNumber': bookmark.surahNumber,
+                              'initialVerseKey':
+                                  '${bookmark.surahNumber}:${bookmark.verseNumber}',
                             },
                           );
                         }

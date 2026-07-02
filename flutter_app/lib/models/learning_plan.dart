@@ -1,12 +1,14 @@
 import 'package:uuid/uuid.dart';
 
+import 'sync_metadata.dart';
+
 class DailyTask {
   final int dayNumber;
   final int startSurah;
   final int startVerse;
   final int endSurah;
   final int endVerse;
-  final String description; // e.g., "سورة البقرة: ١ - ٢٠"
+  final String description;
   bool isCompleted;
   DateTime? completedAt;
 
@@ -54,6 +56,7 @@ class LearningPlan {
   final int totalDays;
   final DateTime createdAt;
   final List<DailyTask> dailyTasks;
+  final SyncMetadata sync;
 
   LearningPlan({
     String? id,
@@ -63,23 +66,42 @@ class LearningPlan {
     required this.totalDays,
     DateTime? createdAt,
     required this.dailyTasks,
+    SyncMetadata? sync,
   })  : id = id ?? const Uuid().v4(),
-        createdAt = createdAt ?? DateTime.now();
+        createdAt = createdAt ?? DateTime.now(),
+        sync = sync ?? SyncMetadata.fresh();
 
   int get currentDay {
     for (int i = 0; i < dailyTasks.length; i++) {
       if (!dailyTasks[i].isCompleted) return dailyTasks[i].dayNumber;
     }
-    return totalDays; // fully completed
+    return totalDays;
   }
 
   double get progressPercentage {
     if (totalDays == 0) return 0.0;
-    int completedCount = dailyTasks.where((task) => task.isCompleted).length;
+    final completedCount =
+        dailyTasks.where((task) => task.isCompleted).length;
     return completedCount / totalDays;
   }
 
   bool get isCompleted => progressPercentage >= 1.0;
+
+  LearningPlan copyWith({
+    List<DailyTask>? dailyTasks,
+    SyncMetadata? sync,
+  }) {
+    return LearningPlan(
+      id: id,
+      title: title,
+      startSurah: startSurah,
+      endSurah: endSurah,
+      totalDays: totalDays,
+      createdAt: createdAt,
+      dailyTasks: dailyTasks ?? this.dailyTasks,
+      sync: sync ?? this.sync,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -89,6 +111,7 @@ class LearningPlan {
         'totalDays': totalDays,
         'createdAt': createdAt.toIso8601String(),
         'dailyTasks': dailyTasks.map((t) => t.toJson()).toList(),
+        ...sync.toJson(),
       };
 
   factory LearningPlan.fromJson(Map<String, dynamic> json) => LearningPlan(
@@ -101,5 +124,6 @@ class LearningPlan {
         dailyTasks: (json['dailyTasks'] as List)
             .map((t) => DailyTask.fromJson(t))
             .toList(),
+        sync: SyncMetadata.fromJson(json),
       );
 }

@@ -1,0 +1,17 @@
+{
+  "name": "qurany-backend-prisma",
+  "private": true,
+  "description": "Prisma tooling to inspect the Qurany PostgreSQL schema (FastAPI/SQLAlchemy owns migrations).",
+  "scripts": {
+    "db:pull": "prisma db pull",
+    "db:generate": "prisma generate",
+    "studio": "prisma studio",
+    "validate": "prisma validate"
+  },
+  "devDependencies": {
+    "prisma": "^6.19.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3"
+  }
+}

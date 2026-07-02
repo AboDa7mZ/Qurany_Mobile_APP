@@ -1,83 +1,178 @@
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../models/recitation_session.dart';
 
+
+
+/// Local-only recitation history (SharedPreferences). Not synced to backend.
+
 class RecitationHistoryService extends ChangeNotifier {
+
   final SharedPreferences _prefs;
+
   List<RecitationSession> _sessions = [];
 
+
+
   RecitationHistoryService(this._prefs) {
+
     _loadSessions();
+
   }
+
+
 
   List<RecitationSession> get sessions => List.unmodifiable(_sessions);
 
-  void _loadSessions() {
-    final data = _prefs.getString('recitation_history');
-    if (data != null) {
-      final list = json.decode(data) as List;
-      _sessions = list.map((e) => RecitationSession.fromJson(e)).toList();
-      // Sort by date descending
-      _sessions.sort((a, b) => b.dateTime.compareTo(a.dateTime));
-    }
+
+
+  void reloadFromStorage() {
+
+    _loadSessions();
+
+    notifyListeners();
+
   }
+
+
+
+  void _loadSessions() {
+
+    final data = _prefs.getString('recitation_history');
+
+    if (data != null) {
+
+      final list = json.decode(data) as List;
+
+      _sessions = list
+
+          .map((e) => RecitationSession.fromJson(e))
+
+          .where((session) => !session.sync.isDeleted)
+
+          .toList();
+
+      _sessions.sort((a, b) => b.dateTime.compareTo(a.dateTime));
+
+    }
+
+  }
+
+
 
   Future<void> _saveSessions() async {
+
     final data = json.encode(_sessions.map((s) => s.toJson()).toList());
+
     await _prefs.setString('recitation_history', data);
+
   }
+
+
 
   Future<void> addSession(RecitationSession session) async {
+
     _sessions.insert(0, session);
+
     await _saveSessions();
+
     notifyListeners();
+
   }
+
+
 
   Future<void> removeSession(String id) async {
+
     _sessions.removeWhere((s) => s.id == id);
+
     await _saveSessions();
+
     notifyListeners();
+
   }
+
+
 
   Future<void> clearAll() async {
-    _sessions.clear();
+
+    _sessions = [];
+
     await _saveSessions();
+
     notifyListeners();
+
   }
 
-  // Statistics
-  int get totalSessions => _sessions.length;
+
+
+  int get totalSessions => sessions.length;
+
+
 
   double get averageScore {
-    if (_sessions.isEmpty) return 0;
-    return _sessions.map((s) => s.similarityScore).reduce((a, b) => a + b) /
-        _sessions.length;
+
+    if (sessions.isEmpty) return 0;
+
+    return sessions.map((s) => s.similarityScore).reduce((a, b) => a + b) /
+
+        sessions.length;
+
   }
+
+
 
   int get totalVersesRecited {
-    return _sessions.fold(0, (sum, s) => sum + s.versesRecited);
+
+    return sessions.fold(0, (sum, s) => sum + s.versesRecited);
+
   }
+
+
 
   int get totalMistakes {
-    return _sessions.fold(0, (sum, s) => sum + s.mistakes);
+
+    return sessions.fold(0, (sum, s) => sum + s.mistakes);
+
   }
+
+
 
   Map<String, int> get surahRecitationCount {
+
     final counts = <String, int>{};
-    for (final session in _sessions) {
+
+    for (final session in sessions) {
+
       counts[session.surahName] = (counts[session.surahName] ?? 0) + 1;
+
     }
+
     return counts;
+
   }
+
+
 
   List<RecitationSession> getSessionsForSurah(int surahNumber) {
-    return _sessions.where((s) => s.surahNumber == surahNumber).toList();
+
+    return sessions.where((s) => s.surahNumber == surahNumber).toList();
+
   }
 
-  // Get sessions for the last N days
+
+
   List<RecitationSession> getRecentSessions(int days) {
+
     final cutoff = DateTime.now().subtract(Duration(days: days));
-    return _sessions.where((s) => s.dateTime.isAfter(cutoff)).toList();
+
+    return sessions.where((s) => s.dateTime.isAfter(cutoff)).toList();
+
   }
+
 }
+

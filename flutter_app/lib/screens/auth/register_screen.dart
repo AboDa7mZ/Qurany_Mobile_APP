@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../models/auth_result.dart';
 import '../../config/theme.dart';
 import '../../config/routes.dart';
 import '../../services/auth_service.dart';
@@ -35,7 +36,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _isLoading = true);
     final auth = context.read<AuthService>();
-    final success = await auth.register(
+    final result = await auth.register(
       _nameController.text.trim(),
       _emailController.text.trim(),
       _passwordController.text,
@@ -43,12 +44,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _isLoading = false);
 
     if (!mounted) return;
-    if (success) {
+    if (result.success) {
       Navigator.pushReplacementNamed(context, AppRoutes.home);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('فشل إنشاء الحساب'),
+        SnackBar(
+          content: Text(
+            result.failure == AuthFailure.invalidCredentials
+                ? 'هذا البريد مسجل بالفعل أو البيانات غير صالحة.'
+                : result.messageAr,
+          ),
           backgroundColor: QuranyTheme.errorRed,
         ),
       );

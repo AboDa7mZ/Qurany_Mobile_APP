@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+import os
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+import src.database.session as db_session
+from src.database.base import Base
+from src.database.session import get_db
+from src.main import create_app
+
+
+@pytest.fixture()
+def client() -> TestClient:
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    db_session.engine = engine
+    db_session.SessionLocal = TestingSessionLocal
+
+    app = create_app()
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    os.environ["JWT_SECRET"] = "test-secret"
+    return TestClient(app)
+
+
+def test_register_and_login(client: TestClient) -> None:
+    register_resp = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "student@qurany.app",
+            "password": "secret12",
+            "full_name": "Student",
+        },
+    )
+    assert register_resp.status_code == 201
+    token = register_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    me_resp = client.get("/api/v1/auth/me", headers=headers)
+    assert me_resp.status_code == 200
+    assert me_resp.json()["email"] == "student@qurany.app"
+
+    login_resp = client.post(
+        "/api/v1/auth/login",
+        data={"username": "student@qurany.app", "password": "secret12"},
+    )
+    assert login_resp.status_code == 200
+    assert login_resp.json()["access_token"]

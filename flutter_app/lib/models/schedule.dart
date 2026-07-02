@@ -1,7 +1,9 @@
-/// A recitation schedule entry for the timetable / daily wird
+import 'sync_metadata.dart';
+
+/// A recitation schedule entry for the timetable / daily wird.
 class RecitationSchedule {
   final String id;
-  final String title; // e.g. "ورد الصباح" or "مراجعة سورة البقرة"
+  final String title;
   final int surahNumber;
   final String surahName;
   final int dayOfWeek; // 1=Mon .. 7=Sun, 0=daily
@@ -9,12 +11,13 @@ class RecitationSchedule {
   final int minute;
   final String mode; // 'free' or 'memorization'
   final bool enabled;
-  final bool repeat; // repeats weekly or one-time
+  final bool repeat;
   final int? endSurahNumber;
   final String? endSurahName;
   final DateTime createdAt;
+  final SyncMetadata sync;
 
-  const RecitationSchedule({
+  RecitationSchedule({
     required this.id,
     required this.title,
     required this.surahNumber,
@@ -28,7 +31,8 @@ class RecitationSchedule {
     this.endSurahNumber,
     this.endSurahName,
     required this.createdAt,
-  });
+    SyncMetadata? sync,
+  }) : sync = sync ?? SyncMetadata.fresh();
 
   bool get isRange => endSurahNumber != null;
 
@@ -44,6 +48,7 @@ class RecitationSchedule {
     bool? repeat,
     int? endSurahNumber,
     String? endSurahName,
+    SyncMetadata? sync,
   }) {
     return RecitationSchedule(
       id: id,
@@ -59,6 +64,7 @@ class RecitationSchedule {
       endSurahNumber: endSurahNumber ?? this.endSurahNumber,
       endSurahName: endSurahName ?? this.endSurahName,
       createdAt: createdAt,
+      sync: sync ?? this.sync,
     );
   }
 
@@ -79,6 +85,7 @@ class RecitationSchedule {
       createdAt: DateTime.parse(
         json['createdAt'] ?? DateTime.now().toIso8601String(),
       ),
+      sync: SyncMetadata.fromJson(json),
     );
   }
 
@@ -96,6 +103,7 @@ class RecitationSchedule {
         'endSurahNumber': endSurahNumber,
         'endSurahName': endSurahName,
         'createdAt': createdAt.toIso8601String(),
+        ...sync.toJson(),
       };
 
   String get dayName {

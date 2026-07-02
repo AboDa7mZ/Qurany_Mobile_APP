@@ -221,5 +221,5 @@ CREATE TABLE schedules (
 ## Next Steps
 Since you approved the schema:
 1. We will set up a FastAPI project directory.
-2. Configure SQLAlchemy ORM to map these PostgreSQL tables.
+2. Configure Prisma ORM to map these PostgreSQL tables.
 3. Build the initial FastAPI OAuth2 authentication flow.

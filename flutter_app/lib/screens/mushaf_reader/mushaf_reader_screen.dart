@@ -7,7 +7,6 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import '../../config/mushaf_pages.dart';
 import '../../config/theme.dart';
 import '../../config/constants.dart';
-import '../../config/routes.dart';
 import '../../models/mushaf_layout.dart';
 import '../../models/recitation_session.dart';
 import '../../services/mushaf_layout_service.dart';
@@ -15,6 +14,7 @@ import '../../services/bookmark_service.dart';
 import '../../services/khatmah_service.dart';
 import '../../widgets/app_icons.dart';
 import '../../widgets/tafsir_sheet.dart';
+import '../../widgets/bookmark_note_dialog.dart';
 import 'widgets/mushaf_page_widget.dart';
 
 /// Full 604-page Mushaf reader. Pages are fetched lazily via
@@ -66,13 +66,29 @@ class _MushafReaderScreenState extends State<MushafReaderScreen> {
   @override
   void initState() {
     super.initState();
-    _currentPage = widget.initialPage ??
-        (widget.surahNumber != null
-            ? MushafPageIndex.firstPage(widget.surahNumber!)
-            : 1);
+    _currentPage = _resolveInitialPage();
     _selectedVerseKey = widget.initialVerseKey;
     _pageController = PageController(initialPage: _currentPage - 1);
     _service.prefetchAround(_currentPage);
+  }
+
+  int _resolveInitialPage() {
+    if (widget.initialPage != null) {
+      return widget.initialPage!;
+    }
+
+    if (widget.initialVerseKey != null) {
+      final surahNumber = int.tryParse(widget.initialVerseKey!.split(':').first);
+      if (surahNumber != null) {
+        return MushafPageIndex.firstPage(surahNumber);
+      }
+    }
+
+    if (widget.surahNumber != null) {
+      return MushafPageIndex.firstPage(widget.surahNumber!);
+    }
+
+    return 1;
   }
 
   @override
@@ -458,45 +474,25 @@ class _MushafReaderScreenState extends State<MushafReaderScreen> {
     return text.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  void _showAddBookmarkDialog(BuildContext context, int surahNumber, String surahName, int pageNumber) {
-    final noteController = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('إضافة علامة مرجعية', textAlign: TextAlign.right),
-        content: TextField(
-          controller: noteController,
-          decoration: const InputDecoration(
-            hintText: 'أضف ملاحظة (اختياري)',
-            border: OutlineInputBorder(),
+  void _showAddBookmarkDialog(
+    BuildContext context,
+    int surahNumber,
+    String surahName,
+    int pageNumber,
+  ) async {
+    final note = await showBookmarkNoteDialog(context);
+    if (!context.mounted || note == null) return;
+
+    context.read<BookmarkService>().addPageBookmark(
+          Bookmark(
+            surahNumber: surahNumber,
+            surahName: surahName,
+            verseNumber: 0,
+            pageNumber: pageNumber,
+            dateTime: DateTime.now(),
+            note: note.isEmpty ? null : note,
           ),
-          maxLines: 3,
-          textAlign: TextAlign.right,
-          textDirection: TextDirection.rtl,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final note = noteController.text.trim();
-              context.read<BookmarkService>().addPageBookmark(Bookmark(
-                surahNumber: surahNumber,
-                surahName: surahName,
-                verseNumber: 0,
-                pageNumber: pageNumber,
-                dateTime: DateTime.now(),
-                note: note.isNotEmpty ? note : null,
-              ));
-              Navigator.pop(context);
-            },
-            child: const Text('حفظ'),
-          ),
-        ],
-      ),
-    );
+        );
   }
 }
 

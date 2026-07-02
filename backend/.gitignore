@@ -55,3 +55,7 @@ data/surah_naba/audio/*
 .vscode/
 *.swp
 .DS_Store
+
+# Node / Prisma
+node_modules/
+package-lock.json

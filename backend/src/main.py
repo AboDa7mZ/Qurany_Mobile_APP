@@ -7,7 +7,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import schemas
+from .api.auth_routes import router as auth_router
 from .api.routes import router as api_router
+from .database.session import init_db
 from .config import settings
 from .services.asr_service import asr_service
 
@@ -38,6 +40,12 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(api_router)
+    app.include_router(auth_router, prefix="/api/v1")
+
+    @app.on_event("startup")
+    def on_startup() -> None:
+        init_db()
+        logger.info("Database initialized")
 
     @app.get("/", include_in_schema=False)
     def root() -> dict:

@@ -56,6 +56,14 @@ class Settings(BaseSettings):
     # Flutter client's _isSimilar threshold.
     similarity_threshold: float = 0.6
 
+    # Database (PostgreSQL in Docker; SQLite fallback for local dev/tests)
+    database_url: str = f"sqlite:///{(BASE_DIR / 'data' / 'qurany.db').as_posix()}"
+
+    # JWT auth
+    jwt_secret: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60 * 24 * 7
+
 
 @lru_cache
 def get_settings() -> Settings:

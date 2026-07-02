@@ -6,7 +6,17 @@ python-multipart
 # Configuration / validation
 pydantic
 pydantic-settings
+email-validator
 
+# Database
+sqlalchemy
+psycopg[binary]
+
+# Auth
+python-jose[cryptography]
+bcrypt
+
+# Configuration / validation
 # Speech-to-text (local, free) - real-time Quranic Arabic transcription
 faster-whisper
 

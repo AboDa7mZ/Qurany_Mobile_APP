@@ -16,6 +16,7 @@ import '../../services/prayer_times_service.dart';
 import '../../widgets/app_icons.dart';
 import '../../widgets/app_logo.dart';
 import '../../widgets/prayer_times_banner.dart';
+import '../quran_reader/surah_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -35,7 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
         index: _selectedIndex,
         children: [
           _DashboardTab(),
-          const _QuranTab(),
+          const SurahListScreen(embeddedInTab: true),
           const _MushafMuallimTab(),
           const _MoreTab(),
         ],
@@ -254,12 +255,22 @@ class _DashboardTabState extends State<_DashboardTab> {
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: QuranyTheme.border),
                       ),
-                      child: const Center(
-                        child: Text(
-                          'ليس لديك ختمة نشطة الآن.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey, height: 1.5),
-                        ),
+                      child: Column(
+                        children: [
+                          const Text(
+                            'ليس لديك ختمة نشطة الآن.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey, height: 1.5),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.pushNamed(context, AppRoutes.createKhatmah);
+                            },
+                            icon: const Icon(Icons.auto_stories_outlined),
+                            label: const Text('بدء ختمة جديدة'),
+                          ),
+                        ],
                       ),
                     ),
                 ],
@@ -484,8 +495,8 @@ class _DashboardGreeting extends StatelessWidget {
                   ),
                   child: const Icon(
                     Icons.favorite_rounded,
-                    color: Color(0xFFE57373),
-                    size: 22,
+                    color: Color(0xFF5F7464),
+                    size: 24,
                   ),
                 ),
               ],
@@ -1266,44 +1277,6 @@ class _KhatmahTrackingTable extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ─────────────────── Quran Tab ───────────────────
-class _QuranTab extends StatelessWidget {
-  const _QuranTab();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('القرآن الكريم')),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.menu_book_rounded,
-              size: 80,
-              color: QuranyTheme.primaryGreen,
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'المصحف الشريف',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Text('اختر سورة للقراءة'),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () =>
-                  Navigator.pushNamed(context, AppRoutes.surahList),
-              icon: const Icon(Icons.list_rounded),
-              label: const Text('قائمة السور'),
-            ),
-          ],
-        ),
       ),
     );
   }

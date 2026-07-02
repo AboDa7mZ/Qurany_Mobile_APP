@@ -9,6 +9,7 @@ import '../../services/quran_service.dart';
 import '../../services/bookmark_service.dart';
 import '../../widgets/app_icons.dart';
 import '../../widgets/tafsir_sheet.dart';
+import '../../widgets/bookmark_note_dialog.dart';
 
 class QuranReaderScreen extends StatefulWidget {
   final int surahNumber;
@@ -271,21 +272,31 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
                   color: QuranyTheme.primaryGold,
                 ),
                 title: Text(isBookmarked ? 'إزالة العلامة' : 'إضافة علامة'),
-                onTap: () {
+                onTap: () async {
                   if (isBookmarked) {
                     bookmarks.removeBookmark(
                       widget.surahNumber,
                       verse.verseNumber,
                     );
-                  } else {
-                    bookmarks.addBookmark(Bookmark(
+                    Navigator.pop(ctx);
+                    setState(() {});
+                    return;
+                  }
+
+                  Navigator.pop(ctx);
+                  final note = await showBookmarkNoteDialog(context);
+                  if (!mounted || note == null) return;
+
+                  await bookmarks.addBookmark(
+                    Bookmark(
                       surahNumber: widget.surahNumber,
                       surahName: widget.surahName,
                       verseNumber: verse.verseNumber,
                       dateTime: DateTime.now(),
-                    ));
-                  }
-                  Navigator.pop(ctx);
+                      note: note.isEmpty ? null : note,
+                    ),
+                  );
+                  if (!mounted) return;
                   setState(() {});
                 },
               ),

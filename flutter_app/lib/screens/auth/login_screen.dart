@@ -31,19 +31,19 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
     final auth = context.read<AuthService>();
-    final success = await auth.login(
+    final result = await auth.login(
       _emailController.text.trim(),
       _passwordController.text,
     );
     setState(() => _isLoading = false);
 
     if (!mounted) return;
-    if (success) {
+    if (result.success) {
       Navigator.pushReplacementNamed(context, AppRoutes.home);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('فشل تسجيل الدخول. تحقق من البيانات.'),
+        SnackBar(
+          content: Text(result.messageAr),
           backgroundColor: QuranyTheme.errorRed,
         ),
       );

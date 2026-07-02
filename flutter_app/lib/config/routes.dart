@@ -65,6 +65,7 @@ class AppRoutes {
           MushafReaderScreen(
             initialPage: args?['initialPage'] as int?,
             surahNumber: args?['surahNumber'] as int?,
+            initialVerseKey: args?['initialVerseKey'] as String?,
           ),
           settings,
         );

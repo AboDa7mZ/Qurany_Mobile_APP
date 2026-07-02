@@ -92,6 +92,11 @@ python scripts/download_and_test_tarteel_whisper.py --audio path/to/recitation.w
 | POST   | `/api/v1/analyze`        | Audio → transcript + comparison feedback      |
 | POST   | `/api/v1/analyze-text`   | Existing transcript → comparison feedback     |
 | WS     | `/api/v1/stream`         | Live alignment from transcript chunks         |
+| POST   | `/api/v1/auth/register`  | Create account + JWT                          |
+| POST   | `/api/v1/auth/login`     | OAuth2 password login (username=email) + JWT  |
+| GET    | `/api/v1/auth/me`        | Current user profile (Bearer token)           |
+| POST   | `/api/v1/sync/push`      | Upload offline-first pending changes          |
+| GET    | `/api/v1/sync/pull`      | Download server changes (`updated_after`)   |
 
 ### `POST /api/v1/analyze`  (multipart/form-data)
 
@@ -130,9 +135,45 @@ path via `/analyze-text`), so it runs fast and offline.
 ## Docker
 
 ```bash
-# From backend/
+# From backend/ — starts PostgreSQL + API
 docker compose -f docker/docker-compose.yml up --build
 ```
+
+Environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | SQLite file in `data/qurany.db` | PostgreSQL URL for FastAPI (`postgresql+psycopg://...`) |
+| `PRISMA_DATABASE_URL` | — | Standard Postgres URL for Prisma Studio (`postgresql://...`) |
+| `JWT_SECRET` | `change-me-in-production` | JWT signing secret |
+
+## Prisma Studio (view tables)
+
+Prisma is configured for **browsing** the PostgreSQL schema in Prisma Studio.  
+The FastAPI app still creates/updates tables via SQLAlchemy (`init_db` on startup).
+
+```bash
+# 1. Start PostgreSQL + backend (creates tables)
+docker compose -f docker/docker-compose.yml up -d postgres backend
+
+# 2. From backend/
+copy .env.example .env          # Windows (set DATABASE_URL + PRISMA_DATABASE_URL)
+npm install
+npm run studio                  # opens http://localhost:5555
+```
+
+Useful commands:
+
+```bash
+npm run validate    # check schema.prisma
+npm run db:pull     # introspect DB after SQLAlchemy schema changes
+npm run db:generate # generate Prisma Client (optional)
+```
+
+Prisma uses `PRISMA_DATABASE_URL` (standard form):
+`postgresql://qurany:qurany@localhost:5432/qurany`  
+FastAPI uses `DATABASE_URL` with the SQLAlchemy driver prefix:
+`postgresql+psycopg://qurany:qurany@localhost:5432/qurany`
 
 ## Flutter integration
 
@@ -152,6 +193,13 @@ Point the app at your backend with:
 ```bash
 flutter run --dart-define=QURANY_API_BASE=http://10.0.2.2:8000   # Android emulator
 ```
+
+### Auth & sync
+
+- Register/login call `/api/v1/auth/*` when the backend is reachable.
+- JWT is stored locally; guest mode remains offline-only.
+- Pending local changes sync via `/api/v1/sync/push` then `/api/v1/sync/pull`.
+- Manual sync is available under **Settings → مزامنة البيانات**.
 
 > Note: running the recorder and the platform speech recognizer at the same
 > time can contend for the microphone on some devices; if WAV capture fails,
