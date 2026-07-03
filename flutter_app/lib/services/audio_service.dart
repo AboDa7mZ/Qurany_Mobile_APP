@@ -23,6 +23,18 @@ class AudioService {
     return status.isGranted;
   }
 
+  /// True when the user selected "don't ask again" (or denied twice on
+  /// Android 11+), meaning request() can no longer show a dialog and the
+  /// permission can only be granted from the app settings screen.
+  Future<bool> isPermanentlyDenied() async {
+    final status = await Permission.microphone.status;
+    return status.isPermanentlyDenied;
+  }
+
+  /// Open the OS app-settings page so the user can grant the microphone
+  /// permission manually after a permanent denial.
+  Future<void> openSettings() => openAppSettings();
+
   /// Start recording audio
   Future<bool> startRecording() async {
     try {
