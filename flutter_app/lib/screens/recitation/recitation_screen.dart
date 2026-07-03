@@ -19,12 +19,14 @@ import '../../services/recitation_history_service.dart';
 import '../../services/schedule_service.dart';
 import '../../services/learning_plan_service.dart';
 import '../../widgets/app_icons.dart';
-
 class RecitationScreen extends StatefulWidget {
   final int? surahNumber;
   final String? surahName;
   final String mode; // 'free', 'memorization', 'tahfeez', or 'tasmee3'
   final int? planDayNumber;
+  final String? planId;
+  final int? startAyah;
+  final int? endAyah;
 
   const RecitationScreen({
     super.key,
@@ -32,6 +34,9 @@ class RecitationScreen extends StatefulWidget {
     this.surahName,
     this.mode = 'free',
     this.planDayNumber,
+    this.planId,
+    this.startAyah,
+    this.endAyah,
   });
 
   @override
@@ -91,12 +96,30 @@ class _RecitationScreenState extends State<RecitationScreen>
   late AnimationController _pulseController;
   late AnimationController _waveController;
 
+  // Automated flow & stats state
+  bool _hasStarted = false;
+  Timer? _silenceTimer;
+  final Map<int, int> _verseFaults = {};
+
+  void _resetSilenceTimer() {
+    _silenceTimer?.cancel();
+    if (_isRecording) {
+      _silenceTimer = Timer(const Duration(seconds: 3), () async {
+        debugPrint('Silence timeout. Automatically stopping recording.');
+        if (mounted && _isRecording) {
+          await _stopRecording();
+        }
+      });
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _selectedSurah = widget.surahNumber ?? 1;
-    _selectedSurahName =
-        widget.surahName ?? AppConstants.surahNames[_selectedSurah - 1];
+    _selectedSurahName = (widget.surahName != null && widget.surahName!.isNotEmpty)
+        ? widget.surahName!
+        : AppConstants.surahNames[_selectedSurah < 1 ? 0 : _selectedSurah - 1];
     _showReference = widget.mode == 'free' || widget.mode == 'tahfeez';
     _verseTextVisible = widget.mode != 'tasmee3';
 
@@ -192,15 +215,50 @@ class _RecitationScreenState extends State<RecitationScreen>
       _liveTranscription = recognizedText;
       _updateWordMatching(recognizedText);
     });
+
+    _resetSilenceTimer();
   }
 
   Future<void> _loadVerses() async {
     setState(() => _isLoadingVerses = true);
     final quranService = context.read<QuranService>();
-    final verses = await quranService.getSurahVerses(_selectedSurah);
+    List<Verse> loadedVerses = [];
+    
+    if (widget.planDayNumber != null && widget.planId != null) {
+      final planService = context.read<LearningPlanService>();
+      final plan = planService.getPlanById(widget.planId!);
+      final task = plan?.dailyTasks.firstWhere((t) => t.dayNumber == widget.planDayNumber);
+      if (task != null) {
+        if (task.startSurah == task.endSurah) {
+          final verses = await quranService.getSurahVerses(task.startSurah);
+          loadedVerses = verses.where((v) => v.verseNumber >= task.startVerse && v.verseNumber <= task.endVerse).toList();
+        } else {
+          for (int s = task.startSurah; s <= task.endSurah; s++) {
+            final verses = await quranService.getSurahVerses(s);
+            if (s == task.startSurah) {
+              loadedVerses.addAll(verses.where((v) => v.verseNumber >= task.startVerse));
+            } else if (s == task.endSurah) {
+              loadedVerses.addAll(verses.where((v) => v.verseNumber <= task.endVerse));
+            } else {
+              loadedVerses.addAll(verses);
+            }
+          }
+        }
+        _selectedSurah = task.startSurah;
+        _selectedSurahName = AppConstants.surahNames[task.startSurah < 1 ? 0 : task.startSurah - 1];
+      } else {
+        loadedVerses = await quranService.getSurahVerses(_selectedSurah);
+      }
+    } else if (widget.startAyah != null && widget.endAyah != null) {
+      final verses = await quranService.getSurahVerses(_selectedSurah);
+      loadedVerses = verses.where((v) => v.verseNumber >= widget.startAyah! && v.verseNumber <= widget.endAyah!).toList();
+    } else {
+      loadedVerses = await quranService.getSurahVerses(_selectedSurah);
+    }
+
     if (mounted) {
       setState(() {
-        _verses = verses;
+        _verses = loadedVerses;
         _isLoadingVerses = false;
         if (widget.mode == 'free' && _verses.isNotEmpty) {
           _matchedWords = _buildPendingMatches();
@@ -215,6 +273,7 @@ class _RecitationScreenState extends State<RecitationScreen>
     _durationSubscription?.cancel();
     _husaryPositionSub?.cancel();
     _husaryCompleteSub?.cancel();
+    _silenceTimer?.cancel();
     _husaryPlayer.dispose();
     _speech.stop();
     _audioService.dispose();
@@ -273,6 +332,14 @@ class _RecitationScreenState extends State<RecitationScreen>
           .map((w) => _WordMatch(word: w, status: _MatchStatus.pending))
           .toList();
       _statusText = 'جاري التسجيل... اقرأ الآن';
+    });
+
+    _silenceTimer?.cancel();
+    _silenceTimer = Timer(const Duration(seconds: 8), () async {
+      if (mounted && _isRecording && _liveTranscription.isEmpty) {
+        debugPrint('Silence timeout. Automatically stopping recording.');
+        await _stopRecording();
+      }
     });
 
     // Use on-device speech recognition for live transcription
@@ -662,12 +729,15 @@ class _RecitationScreenState extends State<RecitationScreen>
     }
   }
 
-  void _validateTahfeez() {
+  void _validateTahfeez() async {
     if (_liveTranscription.isEmpty) {
+      _verseFaults[_currentVerseIndex] = (_verseFaults[_currentVerseIndex] ?? 0) + 1;
       setState(() {
         _isProcessing = false;
-        _statusText = 'لم يتم التعرف على الصوت. حاول مرة أخرى.';
-        _husaryFinished = true;
+        _statusText = 'لم يتم التعرف على الصوت. جاري إعادة تشغيل الشيخ...';
+      });
+      Future.delayed(const Duration(milliseconds: 2000), () {
+        if (mounted) _playHusaryVerse();
       });
       return;
     }
@@ -707,35 +777,69 @@ class _RecitationScreenState extends State<RecitationScreen>
     if (similarity >= 0.8) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('تلاوة صحيحة! ننتقل للآية التالية...'),
+          content: Text('تلاوة صحيحة!'),
           backgroundColor: QuranyTheme.correctGreen,
+          duration: Duration(milliseconds: 800),
         ),
       );
       
       setState(() {
         _isProcessing = false;
       });
+
+      final isLastVerse = _currentVerseIndex == _verses.length - 1;
+      if (isLastVerse) {
+        if (widget.planDayNumber != null && widget.planId != null) {
+          await context.read<LearningPlanService>().markTaskCompleted(widget.planId!, widget.planDayNumber!);
+        }
+
+        final totalVerses = _verses.length;
+        final totalCorrectedFaults = _verseFaults.values.fold(0, (sum, val) => sum + val);
+        final Map<String, int> faultsDetail = {};
+        _verseFaults.forEach((idx, count) {
+          if (idx < _verses.length) {
+            final v = _verses[idx];
+            final sIdx = v.surahNumber < 1 ? 0 : v.surahNumber - 1;
+            faultsDetail['${AppConstants.surahNames[sIdx]} آية ${v.verseNumber}'] = count;
+          }
+        });
+
+        if (mounted) {
+          Navigator.pushReplacementNamed(
+            context,
+            AppRoutes.statistics,
+            arguments: {
+              'totalVerses': totalVerses,
+              'totalCorrectedFaults': totalCorrectedFaults,
+              'faultsDetail': faultsDetail,
+            },
+          );
+        }
+        return;
+      }
       
       _tahfeezNextVerse();
       
-      if (_currentVerseIndex == _verses.length - 1 && widget.planDayNumber != null) {
-         context.read<LearningPlanService>().markTaskCompleted(widget.planDayNumber!);
-      }
-      
-      Future.delayed(const Duration(milliseconds: 600), () {
+      Future.delayed(const Duration(milliseconds: 1200), () {
         if (mounted) _playHusaryVerse();
       });
     } else {
+      _verseFaults[_currentVerseIndex] = (_verseFaults[_currentVerseIndex] ?? 0) + 1;
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('تلاوة غير صحيحة، حاول مرة أخرى'),
+          content: Text('تلاوة غير صحيحة، استمع للشيخ وحاول مرة أخرى'),
           backgroundColor: QuranyTheme.errorRed,
+          duration: Duration(seconds: 2),
         ),
       );
       setState(() {
         _isProcessing = false;
-        _statusText = 'حاول مرة أخرى';
-        _husaryFinished = true; 
+        _statusText = 'تلاوة غير صحيحة، استمع للشيخ...';
+      });
+
+      Future.delayed(const Duration(milliseconds: 2000), () {
+        if (mounted) _playHusaryVerse();
       });
     }
   }
@@ -915,10 +1019,10 @@ class _RecitationScreenState extends State<RecitationScreen>
       backgroundColor: QuranyTheme.background,
       appBar: AppBar(
         title: Text(
-          widget.mode == 'memorization'
-              ? 'مراجعة الحفظ'
+          widget.planDayNumber != null
+              ? 'متابعة الخطة'
               : widget.mode == 'tahfeez'
-                  ? 'تحفيظ'
+                  ? 'تعلم حر'
                   : widget.mode == 'tasmee3'
                       ? 'تسميع'
                       : 'التلاوة',
@@ -958,6 +1062,28 @@ class _RecitationScreenState extends State<RecitationScreen>
     );
   }
 
+  String get _currentSurahName {
+    if (_verses.isEmpty || _currentVerseIndex >= _verses.length) {
+      return _selectedSurahName;
+    }
+    final verse = _verses[_currentVerseIndex];
+    if (verse.surahNumber < 1 || verse.surahNumber > 114) {
+      return _selectedSurahName;
+    }
+    return AppConstants.surahNames[verse.surahNumber - 1];
+  }
+
+  int get _currentSurahVerseCount {
+    if (_verses.isEmpty || _currentVerseIndex >= _verses.length) {
+      return AppConstants.surahVerseCount[_selectedSurah < 1 ? 0 : _selectedSurah - 1];
+    }
+    final verse = _verses[_currentVerseIndex];
+    if (verse.surahNumber < 1 || verse.surahNumber > 114) {
+      return AppConstants.surahVerseCount[_selectedSurah < 1 ? 0 : _selectedSurah - 1];
+    }
+    return AppConstants.surahVerseCount[verse.surahNumber - 1];
+  }
+
   Widget _buildSurahInfoBar() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -976,7 +1102,7 @@ class _RecitationScreenState extends State<RecitationScreen>
               color: QuranyTheme.primaryGreen, size: 18),
           const SizedBox(width: 8),
           Text(
-            'سورة $_selectedSurahName',
+            'سورة $_currentSurahName',
             style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
@@ -991,7 +1117,7 @@ class _RecitationScreenState extends State<RecitationScreen>
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
-              '${AppConstants.surahVerseCount[_selectedSurah - 1]} آية',
+              '$_currentSurahVerseCount آية',
               style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ),
@@ -1068,9 +1194,12 @@ class _RecitationScreenState extends State<RecitationScreen>
   }
 
   String get _modeBadgeLabel {
+    if (widget.planDayNumber != null) {
+      return 'متابعة الخطة';
+    }
     switch (widget.mode) {
       case 'tahfeez':
-        return 'تحفيظ';
+        return 'تعلم حر';
       case 'tasmee3':
         return 'تسميع';
       default:
@@ -1398,6 +1527,70 @@ class _RecitationScreenState extends State<RecitationScreen>
       return const Center(child: Text('لا توجد آيات'));
     }
 
+    if (!_hasStarted) {
+      return Center(
+        child: Container(
+          margin: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: QuranyTheme.surface,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: const [
+              BoxShadow(
+                color: QuranyTheme.shadow,
+                blurRadius: 15,
+                offset: Offset(0, 5),
+              ),
+            ],
+            border: Border.all(color: QuranyTheme.border),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.school_rounded,
+                size: 80,
+                color: QuranyTheme.primaryGreen,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'مصحف التكرار والتعلم',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: QuranyTheme.darkGreen),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'اضغط على زر البدء للاستماع لتلاوة الشيخ الحصري ثم الترديد بعده تلقائياً.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey, height: 1.5),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      _hasStarted = true;
+                    });
+                    _playHusaryVerse();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: QuranyTheme.primaryGreen,
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('ابدأ التعلم', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final verse = _verses[_currentVerseIndex];
 
     return Column(
@@ -1493,7 +1686,7 @@ class _RecitationScreenState extends State<RecitationScreen>
                       : _isPlayingHusary
                           ? 'استمع للشيخ الحصري...'
                           : _husaryFinished
-                              ? 'دورك! اضغط زر التسجيل'
+                              ? 'دورك! اقرأ الآن تلقائياً'
                               : 'اضغط للاستماع للحصري أولاً',
                   style: TextStyle(
                     fontSize: 14,
@@ -1589,7 +1782,7 @@ class _RecitationScreenState extends State<RecitationScreen>
                     onPressed: _startUserTurnRecording,
                     icon: const Icon(Icons.mic, size: 28),
                     label: const Text(
-                      'دورك — ابدأ القراءة',
+                      'أعد التسجيل يدوياً',
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                     style: ElevatedButton.styleFrom(
@@ -2216,6 +2409,9 @@ class _RecitationScreenState extends State<RecitationScreen>
   }
 
   Widget _buildRecordingControls() {
+    if (widget.mode == 'tahfeez' && !_hasStarted) {
+      return const SizedBox.shrink();
+    }
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
       decoration: BoxDecoration(

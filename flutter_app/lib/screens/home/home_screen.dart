@@ -137,7 +137,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                         onMenuTap: () =>
                             Navigator.pushNamed(context, AppRoutes.settings),
                         onNotificationsTap: () =>
-                            Navigator.pushNamed(context, AppRoutes.schedule),
+                            Navigator.pushNamed(context, AppRoutes.notifications),
                       ),
                       _DashboardGreeting(
                         userName:
@@ -263,13 +263,6 @@ class _DashboardTabState extends State<_DashboardTab> {
                             style: TextStyle(color: Colors.grey, height: 1.5),
                           ),
                           const SizedBox(height: 16),
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              Navigator.pushNamed(context, AppRoutes.createKhatmah);
-                            },
-                            icon: const Icon(Icons.auto_stories_outlined),
-                            label: const Text('بدء ختمة جديدة'),
-                          ),
                         ],
                       ),
                     ),
@@ -1289,8 +1282,6 @@ class _MushafMuallimTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final learningPlan = context.watch<LearningPlanService>();
-    final bool hasActivePlan = learningPlan.hasActivePlan;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('المصحف المعلم'),
@@ -1343,16 +1334,62 @@ class _MushafMuallimTab extends StatelessWidget {
             ),
             const SizedBox(height: 32),
 
-            // Track Plan
-            if (hasActivePlan)
-              _RecitationModeCard(
-                icon: Icons.track_changes_rounded,
-                title: 'متابعة الخطة',
-                description: 'أكمل وردك اليومي حسب خطتك',
-                color: const Color(0xFF1565C0),
-                onTap: () => Navigator.pushNamed(context, AppRoutes.trackPlan),
+            // Track Plans List
+            if (learningPlan.plans.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8.0),
+                child: Text(
+                  'خططي الحالية',
+                  textAlign: TextAlign.start,
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: QuranyTheme.darkGreen,
+                  ),
+                ),
               ),
-            if (hasActivePlan) const SizedBox(height: 16),
+              ...learningPlan.plans.map((plan) {
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 2,
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.all(16),
+                    leading: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1565C0).withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.track_changes_rounded, color: Color(0xFF1565C0)),
+                    ),
+                    title: Text(plan.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 4),
+                        Text('نسبة الإنجاز: ${(plan.progressPercentage * 100).toStringAsFixed(1)}%'),
+                        const SizedBox(height: 4),
+                        LinearProgressIndicator(
+                          value: plan.progressPercentage,
+                          backgroundColor: Colors.grey[200],
+                          valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF1565C0)),
+                        ),
+                      ],
+                    ),
+                    trailing: AppIcons.forwardChevron(color: const Color(0xFF1565C0), size: 18),
+                    onTap: () => Navigator.pushNamed(
+                      context,
+                      AppRoutes.trackPlan,
+                      arguments: {'planId': plan.id},
+                    ),
+                  ),
+                );
+              }),
+              const SizedBox(height: 16),
+            ],
 
             // New Plan
             _RecitationModeCard(
@@ -1373,7 +1410,7 @@ class _MushafMuallimTab extends StatelessWidget {
               onTap: () => Navigator.pushNamed(
                 context,
                 AppRoutes.surahList,
-                arguments: {'selectForRecitation': true, 'mode': 'free'},
+                arguments: {'selectForRecitation': true, 'mode': 'tahfeez'},
               ),
             ),
           ],
@@ -1472,11 +1509,6 @@ class _MoreTab extends StatelessWidget {
             icon: Icons.bookmark_rounded,
             title: 'العلامات المرجعية',
             onTap: () => Navigator.pushNamed(context, AppRoutes.bookmarks),
-          ),
-          _MoreItem(
-            icon: Icons.history_rounded,
-            title: 'سجل التلاوة',
-            onTap: () => Navigator.pushNamed(context, AppRoutes.history),
           ),
           _MoreItem(
             icon: Icons.trending_up_rounded,

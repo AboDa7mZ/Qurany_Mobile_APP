@@ -50,7 +50,11 @@ class QuranService extends ChangeNotifier {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final ayahs = data['data']['ayahs'] as List;
-        final verses = ayahs.map((a) => Verse.fromJson(a)).toList();
+        final verses = ayahs.map((a) {
+          final map = Map<String, dynamic>.from(a);
+          map['surahNumber'] = surahNumber;
+          return Verse.fromJson(map);
+        }).toList();
 
         _surahCache[surahNumber] = verses;
         _isLoading = false;

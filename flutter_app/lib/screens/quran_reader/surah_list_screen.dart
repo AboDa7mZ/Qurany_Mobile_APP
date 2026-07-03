@@ -170,15 +170,19 @@ class _SurahListScreenState extends State<SurahListScreen> {
                           ),
                     onTap: () {
                       if (_selectForRecitation) {
-                        Navigator.pushNamed(
-                          context,
-                          AppRoutes.recitation,
-                          arguments: {
-                            'surahNumber': surahNumber,
-                            'surahName': surahName,
-                            'mode': _recitationMode,
-                          },
-                        );
+                        if (_recitationMode == 'tahfeez') {
+                          _showAyahRangeSelector(context, surahNumber, surahName);
+                        } else {
+                          Navigator.pushNamed(
+                            context,
+                            AppRoutes.recitation,
+                            arguments: {
+                              'surahNumber': surahNumber,
+                              'surahName': surahName,
+                              'mode': _recitationMode,
+                            },
+                          );
+                        }
                       } else {
                         Navigator.pushNamed(
                           context,
@@ -194,6 +198,169 @@ class _SurahListScreenState extends State<SurahListScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  void _showAyahRangeSelector(BuildContext context, int surahNumber, String surahName) {
+    int totalVerses = AppConstants.surahVerseCount[surahNumber - 1];
+    int startAyah = 1;
+    int endAyah = totalVerses;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return Container(
+              padding: EdgeInsets.only(
+                top: 24,
+                left: 24,
+                right: 24,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+              ),
+              decoration: const BoxDecoration(
+                color: QuranyTheme.background,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'تحديد نطاق الآيات - سورة $surahName',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: QuranyTheme.darkGreen,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('من آية:', style: TextStyle(fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: QuranyTheme.primaryGreen.withValues(alpha: 0.3)),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<int>(
+                                  value: startAyah,
+                                  isExpanded: true,
+                                  items: List.generate(totalVerses, (i) {
+                                    return DropdownMenuItem(
+                                      value: i + 1,
+                                      child: Text('${i + 1}'),
+                                    );
+                                  }),
+                                  onChanged: (v) {
+                                    if (v != null) {
+                                      setModalState(() {
+                                        startAyah = v;
+                                        if (startAyah > endAyah) {
+                                          endAyah = startAyah;
+                                        }
+                                      });
+                                    }
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('إلى آية:', style: TextStyle(fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: QuranyTheme.primaryGreen.withValues(alpha: 0.3)),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<int>(
+                                  value: endAyah,
+                                  isExpanded: true,
+                                  items: List.generate(totalVerses, (i) {
+                                    bool disabled = (i + 1) < startAyah;
+                                    return DropdownMenuItem(
+                                      value: i + 1,
+                                      enabled: !disabled,
+                                      child: Text(
+                                        '${i + 1}',
+                                        style: TextStyle(
+                                          color: disabled ? Colors.grey : Colors.black,
+                                        ),
+                                      ),
+                                    );
+                                  }),
+                                  onChanged: (v) {
+                                    if (v != null) {
+                                      setModalState(() {
+                                        endAyah = v;
+                                      });
+                                    }
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 32),
+                  SizedBox(
+                    height: 50,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context); // close bottom sheet
+                        Navigator.pushNamed(
+                          context,
+                          AppRoutes.recitation,
+                          arguments: {
+                            'surahNumber': surahNumber,
+                            'surahName': surahName,
+                            'mode': _recitationMode,
+                            'startAyah': startAyah,
+                            'endAyah': endAyah,
+                          },
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: QuranyTheme.primaryGreen,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.zero,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'ابدأ التعلم',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

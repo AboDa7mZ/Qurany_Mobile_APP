@@ -6,12 +6,13 @@ import '../../services/learning_plan_service.dart';
 import '../../widgets/app_icons.dart';
 
 class TrackPlanScreen extends StatelessWidget {
-  const TrackPlanScreen({super.key});
+  final String? planId;
+  const TrackPlanScreen({super.key, this.planId});
 
   @override
   Widget build(BuildContext context) {
     final planService = context.watch<LearningPlanService>();
-    final plan = planService.activePlan;
+    final plan = planId != null ? planService.getPlanById(planId!) : planService.activePlan;
 
     if (plan == null) {
       return Scaffold(
@@ -26,7 +27,19 @@ class TrackPlanScreen extends StatelessWidget {
         leading: AppIcons.backButton(context: context),
         actions: [
           IconButton(
+            icon: const Icon(Icons.bar_chart_rounded),
+            tooltip: 'إحصائيات الخطة',
+            onPressed: () {
+              Navigator.pushNamed(
+                context,
+                AppRoutes.planStats,
+                arguments: {'planId': plan.id},
+              );
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.delete_outline, color: QuranyTheme.errorRed),
+            tooltip: 'إلغاء الخطة',
             onPressed: () {
               showDialog(
                 context: context,
@@ -37,7 +50,7 @@ class TrackPlanScreen extends StatelessWidget {
                     TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('تراجع')),
                     TextButton(
                       onPressed: () {
-                        planService.clearPlan();
+                        planService.deletePlan(plan.id);
                         Navigator.pop(ctx);
                         Navigator.pop(context);
                       },
@@ -164,8 +177,9 @@ class TrackPlanScreen extends StatelessWidget {
                                     arguments: {
                                       'surahNumber': task.startSurah,
                                       'surahName': '', // Re-fetched
-                                      'mode': 'free',
+                                      'mode': 'tahfeez',
                                       'planDayNumber': task.dayNumber,
+                                      'planId': plan.id,
                                     },
                                   );
                                 },

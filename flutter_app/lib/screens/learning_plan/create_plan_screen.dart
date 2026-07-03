@@ -16,7 +16,16 @@ class CreatePlanScreen extends StatefulWidget {
 class _CreatePlanScreenState extends State<CreatePlanScreen> {
   int _startSurah = 1; // Al-Fatihah
   int _endSurah = 114; // An-Nas
+  int _startAyah = 1;
+  int _endAyah = 6;
   int _totalDays = 30;
+
+  @override
+  void initState() {
+    super.initState();
+    _startAyah = 1;
+    _endAyah = AppConstants.surahVerseCount[_endSurah - 1];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -57,8 +66,42 @@ class _CreatePlanScreenState extends State<CreatePlanScreen> {
                   }),
                   onChanged: (v) => setState(() {
                     _startSurah = v ?? 1;
+                    _startAyah = 1;
                     if (_startSurah > _endSurah) {
                       _endSurah = _startSurah;
+                      _endAyah = AppConstants.surahVerseCount[_endSurah - 1];
+                    } else if (_startSurah == _endSurah) {
+                      _endAyah = AppConstants.surahVerseCount[_endSurah - 1];
+                    }
+                  }),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Start Ayah
+            const Text('من آية:'),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                border: Border.all(color: QuranyTheme.primaryGreen.withValues(alpha: 0.3)),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<int>(
+                  value: _startAyah,
+                  isExpanded: true,
+                  items: List.generate(AppConstants.surahVerseCount[_startSurah - 1], (i) {
+                    return DropdownMenuItem(
+                      value: i + 1,
+                      child: Text('${i + 1}'),
+                    );
+                  }),
+                  onChanged: (v) => setState(() {
+                    _startAyah = v ?? 1;
+                    if (_startSurah == _endSurah && _startAyah > _endAyah) {
+                      _endAyah = _startAyah;
                     }
                   }),
                 ),
@@ -80,7 +123,6 @@ class _CreatePlanScreenState extends State<CreatePlanScreen> {
                   value: _endSurah,
                   isExpanded: true,
                   items: List.generate(114, (i) {
-                    // Disable items before startSurah
                     bool disabled = (i + 1) < _startSurah;
                     return DropdownMenuItem(
                       value: i + 1,
@@ -93,7 +135,45 @@ class _CreatePlanScreenState extends State<CreatePlanScreen> {
                       ),
                     );
                   }),
-                  onChanged: (v) => setState(() => _endSurah = v ?? 114),
+                  onChanged: (v) => setState(() {
+                    _endSurah = v ?? 114;
+                    _endAyah = AppConstants.surahVerseCount[_endSurah - 1];
+                    if (_startSurah == _endSurah && _startAyah > _endAyah) {
+                      _startAyah = 1;
+                    }
+                  }),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // End Ayah
+            const Text('إلى آية:'),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                border: Border.all(color: QuranyTheme.primaryGreen.withValues(alpha: 0.3)),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<int>(
+                  value: _endAyah,
+                  isExpanded: true,
+                  items: List.generate(AppConstants.surahVerseCount[_endSurah - 1], (i) {
+                    bool disabled = _startSurah == _endSurah && (i + 1) < _startAyah;
+                    return DropdownMenuItem(
+                      value: i + 1,
+                      enabled: !disabled,
+                      child: Text(
+                        '${i + 1}',
+                        style: TextStyle(
+                          color: disabled ? Colors.grey : Colors.black,
+                        ),
+                      ),
+                    );
+                  }),
+                  onChanged: (v) => setState(() => _endAyah = v ?? 1),
                 ),
               ),
             ),
@@ -134,6 +214,7 @@ class _CreatePlanScreenState extends State<CreatePlanScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: QuranyTheme.primaryGreen,
                   foregroundColor: Colors.white,
+                  padding: EdgeInsets.zero,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
@@ -152,66 +233,76 @@ class _CreatePlanScreenState extends State<CreatePlanScreen> {
 
   void _generatePlan() async {
     final List<DailyTask> tasks = [];
-    int totalVerses = 0;
-    
-    for (int i = _startSurah; i <= _endSurah; i++) {
-      totalVerses += AppConstants.surahVerseCount[i - 1];
-    }
+    final List<MapEntry<int, int>> allVerses = [];
 
-    double versesPerDay = totalVerses / _totalDays;
-    
-    int currentSurah = _startSurah;
-    int currentVerse = 1;
-    double exactAccumulator = 0.0;
-
-    for (int day = 1; day <= _totalDays; day++) {
-      exactAccumulator += versesPerDay;
-      int targetVersesForToday = exactAccumulator.round();
-      int versesAssignedToday = 0;
-      
-      int dayStartSurah = currentSurah;
-      int dayStartVerse = currentVerse;
-
-      // Assign verses until we meet today's target
-      while (versesAssignedToday < targetVersesForToday && currentSurah <= _endSurah) {
-        int versesLeftInSurah = AppConstants.surahVerseCount[currentSurah - 1] - currentVerse + 1;
-        int needed = targetVersesForToday - versesAssignedToday;
-
-        if (versesLeftInSurah <= needed) {
-          versesAssignedToday += versesLeftInSurah;
-          currentSurah++;
-          currentVerse = 1;
-        } else {
-          versesAssignedToday += needed;
-          currentVerse += needed;
+    // Collect all verses in range
+    if (_startSurah == _endSurah) {
+      for (int v = _startAyah; v <= _endAyah; v++) {
+        allVerses.add(MapEntry(_startSurah, v));
+      }
+    } else {
+      // First surah verses
+      for (int v = _startAyah; v <= AppConstants.surahVerseCount[_startSurah - 1]; v++) {
+        allVerses.add(MapEntry(_startSurah, v));
+      }
+      // Middle surahs verses
+      for (int s = _startSurah + 1; s < _endSurah; s++) {
+        for (int v = 1; v <= AppConstants.surahVerseCount[s - 1]; v++) {
+          allVerses.add(MapEntry(s, v));
         }
       }
+      // Last surah verses
+      for (int v = 1; v <= _endAyah; v++) {
+        allVerses.add(MapEntry(_endSurah, v));
+      }
+    }
 
-      int dayEndSurah = currentSurah > _endSurah ? _endSurah : (currentVerse == 1 ? currentSurah - 1 : currentSurah);
-      int dayEndVerse = currentSurah > _endSurah 
-          ? AppConstants.surahVerseCount[_endSurah - 1] 
-          : (currentVerse == 1 ? AppConstants.surahVerseCount[dayEndSurah - 1] : currentVerse - 1);
+    int totalVerses = allVerses.length;
+    double versesPerDay = totalVerses / _totalDays;
+    int currentIndex = 0;
 
-      exactAccumulator -= targetVersesForToday; // carry over fractional differences
-      
-      String desc = dayStartSurah == dayEndSurah
-          ? 'سورة ${AppConstants.surahNames[dayStartSurah - 1]}: $dayStartVerse - $dayEndVerse'
-          : 'سورة ${AppConstants.surahNames[dayStartSurah - 1]} آية $dayStartVerse إلى سورة ${AppConstants.surahNames[dayEndSurah - 1]} آية $dayEndVerse';
+    for (int day = 1; day <= _totalDays; day++) {
+      if (currentIndex >= totalVerses) break;
+
+      int dayStartIndex = currentIndex;
+      int targetEndIndex = (day * versesPerDay).round();
+      if (targetEndIndex > totalVerses) {
+        targetEndIndex = totalVerses;
+      }
+      if (targetEndIndex <= dayStartIndex) {
+        targetEndIndex = dayStartIndex + 1;
+      }
+
+      int dayEndIndex = targetEndIndex - 1;
+      currentIndex = targetEndIndex;
+
+      final startV = allVerses[dayStartIndex];
+      final endV = allVerses[dayEndIndex];
+
+      String desc = startV.key == endV.key
+          ? 'سورة ${AppConstants.surahNames[startV.key - 1]}: آية ${startV.value} - ${endV.value}'
+          : 'سورة ${AppConstants.surahNames[startV.key - 1]} آية ${startV.value} إلى سورة ${AppConstants.surahNames[endV.key - 1]} آية ${endV.value}';
 
       tasks.add(DailyTask(
         dayNumber: day,
-        startSurah: dayStartSurah,
-        startVerse: dayStartVerse,
-        endSurah: dayEndSurah,
-        endVerse: dayEndVerse,
+        startSurah: startV.key,
+        startVerse: startV.value,
+        endSurah: endV.key,
+        endVerse: endV.value,
         description: desc,
       ));
+    }
 
-      if (currentSurah > _endSurah) break;
+    // Title includes surah names and ayah range for clarity
+    String planTitle = 'خطة حفظ: ';
+    if (_startSurah == _endSurah) {
+      planTitle += '${AppConstants.surahNames[_startSurah - 1]} (${_startAyah}-${_endAyah})';
+    } else {
+      planTitle += '${AppConstants.surahNames[_startSurah - 1]} (${_startAyah}) إلى ${AppConstants.surahNames[_endSurah - 1]} (${_endAyah})';
     }
 
     final plan = LearningPlan(
-      title: 'خطة حفظ (${_totalDays} يوم)',
+      title: planTitle,
       startSurah: _startSurah,
       endSurah: _endSurah,
       totalDays: tasks.length,
@@ -221,7 +312,6 @@ class _CreatePlanScreenState extends State<CreatePlanScreen> {
     await context.read<LearningPlanService>().savePlan(plan);
     if (!mounted) return;
     
-    // Pop back to home, which will now show the new tab
     Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('تم إنشاء الخطة بنجاح!')),

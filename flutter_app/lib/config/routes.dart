@@ -17,6 +17,9 @@ import '../screens/settings/settings_screen.dart';
 import '../screens/learning_plan/create_plan_screen.dart';
 import '../screens/learning_plan/track_plan_screen.dart';
 import '../screens/khatmah/create_khatmah_screen.dart';
+import '../screens/notifications/notifications_screen.dart';
+import '../screens/recitation/statistics_screen.dart';
+import '../screens/learning_plan/plan_stats_screen.dart';
 
 class AppRoutes {
   static const String splash = '/';
@@ -37,6 +40,9 @@ class AppRoutes {
   static const String createPlan = '/create-plan';
   static const String trackPlan = '/track-plan';
   static const String createKhatmah = '/create-khatmah';
+  static const String notifications = '/notifications';
+  static const String statistics = '/statistics';
+  static const String planStats = '/plan-stats';
 
   static Route<dynamic> generateRoute(RouteSettings settings) {
     switch (settings.name) {
@@ -76,6 +82,10 @@ class AppRoutes {
             surahNumber: args?['surahNumber'],
             surahName: args?['surahName'],
             mode: args?['mode'] ?? 'free',
+            planDayNumber: args?['planDayNumber'],
+            planId: args?['planId'],
+            startAyah: args?['startAyah'],
+            endAyah: args?['endAyah'],
           ),
           settings,
         );
@@ -100,9 +110,35 @@ class AppRoutes {
       case AppRoutes.createPlan:
         return _slideRoute(const CreatePlanScreen(), settings);
       case AppRoutes.trackPlan:
-        return _slideRoute(const TrackPlanScreen(), settings);
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _slideRoute(
+          TrackPlanScreen(
+            planId: args?['planId'] as String?,
+          ),
+          settings,
+        );
       case AppRoutes.createKhatmah:
         return _slideRoute(const CreateKhatmahScreen(), settings);
+      case notifications:
+        return _slideRoute(const NotificationsScreen(), settings);
+      case statistics:
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _slideRoute(
+          StatisticsScreen(
+            totalVerses: args?['totalVerses'] ?? 0,
+            totalCorrectedFaults: args?['totalCorrectedFaults'] ?? 0,
+            faultsDetail: args?['faultsDetail'] ?? <String, int>{},
+          ),
+          settings,
+        );
+      case planStats:
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _slideRoute(
+          PlanStatsScreen(
+            planId: args?['planId'] as String?,
+          ),
+          settings,
+        );
       default:
         return _fadeRoute(const HomeScreen(), settings);
     }
