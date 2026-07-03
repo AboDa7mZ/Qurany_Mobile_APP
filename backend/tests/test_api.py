@@ -13,7 +13,7 @@ def test_health(client):
 def test_list_surahs(client):
     resp = client.get("/api/v1/surahs")
     assert resp.status_code == 200
-    assert resp.json()["supported_surahs"] == [78]
+    assert set(resp.json()["supported_surahs"]) == {78, 2}
 
 
 def test_get_surah_reference(client):
@@ -61,9 +61,11 @@ def test_analyze_text_with_errors_uses_camelcase(client):
 
 
 def test_analyze_text_unsupported_surah(client):
+    # Surah 2 (Al-Baqarah) is now supported (fine-tuned model target); use a
+    # surah that is genuinely out of MVP scope instead.
     resp = client.post(
         "/api/v1/analyze-text",
-        json={"surah_number": 2, "transcribed_text": "بسم الله"},
+        json={"surah_number": 3, "transcribed_text": "بسم الله"},
     )
     assert resp.status_code == 400
 

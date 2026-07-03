@@ -1,7 +1,14 @@
 """Tests for Arabic normalization and similarity helpers."""
 from __future__ import annotations
 
-from src.utils.arabic import is_similar, normalize_arabic, normalize_words, word_similarity
+from src.utils.arabic import (
+    contains_harakat,
+    is_similar,
+    normalize_arabic,
+    normalize_arabic_keep_harakat,
+    normalize_words,
+    word_similarity,
+)
 
 
 def test_strips_diacritics():
@@ -29,3 +36,35 @@ def test_is_similar_threshold():
     assert is_similar("يعلمون", "تعلمون", threshold=0.6)
     # completely different
     assert not is_similar("نبا", "عظيم", threshold=0.6)
+
+
+def test_is_similar_allows_missing_final_letter():
+    # Long enough that Jaccard already forgives it, kept for regression safety.
+    assert is_similar("امن", "ام", threshold=0.6)
+    assert is_similar("الضالين", "الضالي", threshold=0.6)
+    # Short words: Jaccard alone would reject these (too few shared chars),
+    # but dropping exactly the final letter should still be forgiven.
+    assert is_similar("من", "م", threshold=0.6)
+    assert is_similar("قل", "ق", threshold=0.6)
+
+
+def test_is_similar_rejects_more_than_final_letter():
+    # Dropping two+ letters is a bigger miss than "final letter" leniency
+    # is meant to cover, and stays a mistake.
+    assert not is_similar("كفروا", "كف", threshold=0.6)
+
+
+def test_contains_harakat():
+    assert contains_harakat("عَمَّ")
+    assert not contains_harakat("عم")
+    assert not contains_harakat("")
+
+
+def test_normalize_arabic_keep_harakat_round_trips_to_plain_normalize():
+    original = "عَمَّ يَتَسَاءَلُونَ"
+    kept = normalize_arabic_keep_harakat(original)
+    # Stripping diacritics from the harakat-preserving form must match the
+    # plain normalizer exactly, so the two stay comparable index-for-index.
+    assert normalize_arabic(kept) == normalize_arabic(original)
+    # But harakat must actually still be present (i.e. this isn't a no-op).
+    assert contains_harakat(kept)

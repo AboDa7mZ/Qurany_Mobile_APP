@@ -55,6 +55,7 @@ class RecitationApiService {
   Future<Map<String, dynamic>> analyzeRecitation({
     required String audioFilePath,
     required int surahNumber,
+    String riwayah = 'hafs',
     Duration timeout = const Duration(seconds: 90),
   }) async {
     final file = File(audioFilePath);
@@ -67,6 +68,7 @@ class RecitationApiService {
       Uri.parse('$baseUrl/api/v1/analyze'),
     )
       ..fields['surah_number'] = surahNumber.toString()
+      ..fields['riwayah'] = riwayah
       ..files.add(await http.MultipartFile.fromPath('file', audioFilePath));
 
     try {
@@ -93,6 +95,7 @@ class RecitationApiService {
   Future<Map<String, dynamic>> analyzeText({
     required int surahNumber,
     required String transcribedText,
+    String riwayah = 'hafs',
     Duration timeout = const Duration(seconds: 30),
   }) async {
     try {
@@ -103,6 +106,7 @@ class RecitationApiService {
             body: json.encode({
               'surah_number': surahNumber,
               'transcribed_text': transcribedText,
+              'riwayah': riwayah,
             }),
           )
           .timeout(timeout);

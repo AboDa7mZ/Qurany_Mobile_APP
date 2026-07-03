@@ -66,3 +66,22 @@ Thumbs.db
 .env
 .env.*
 !.env.sample
+
+# ── ML model weights (download from Kaggle; see backend/training/kaggle/) ──
+backend/models/
+/models/
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+# ── Generated reference caches & scratch outputs ──────────
+backend/data/surah_cache/
+backend/align_out.txt
+backend/analysis_out.txt
+backend/response_*.json
+
+# ── Local training audio / docs (not for git) ─────────────
+training data/
+training data2/
+Qurany_Midyear_documentation-1.pdf

@@ -46,6 +46,12 @@ test_sample.mp3
 data/uploads/recitations/*
 !data/uploads/recitations/.gitkeep
 
+# Fine-tuned model checkpoints (see training/kaggle/ READMEs)
+models/
+
+# Generated API reference cache (rebuilt on first request)
+data/surah_cache/
+
 # Audio data (keep folder, ignore files)
 data/surah_naba/audio/*
 !data/surah_naba/audio/.gitkeep

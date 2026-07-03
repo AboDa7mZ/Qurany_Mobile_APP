@@ -15,12 +15,12 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.concurrency import run_in_threadpool
-
+from ..concurrency import run_inference
 from ..config import settings
 from ..services.analysis_service import analyze_audio, analyze_text
 from ..services.asr_service import asr_service
 from ..services.reference_service import get_surah_reference
+from ..services.riwayah import SUPPORTED_RIWAYAT, normalize_riwayah, validate_riwayah_for_surah
 from . import schemas
 
 logger = logging.getLogger(__name__)
@@ -56,9 +56,21 @@ def _save_upload(file: UploadFile) -> Path:
     return dest
 
 
+def _validate_riwayah(riwayah: str | None, surah_number: int) -> str:
+    try:
+        riwayah = normalize_riwayah(riwayah)
+        validate_riwayah_for_surah(riwayah, surah_number)
+        return riwayah
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/surahs", summary="List supported surahs")
 def list_surahs() -> dict:
-    return {"supported_surahs": settings.supported_surahs}
+    return {
+        "supported_surahs": settings.supported_surahs,
+        "supported_riwayat": list(SUPPORTED_RIWAYAT),
+    }
 
 
 @router.get(
@@ -66,9 +78,10 @@ def list_surahs() -> dict:
     response_model=schemas.SurahReferenceResponse,
     summary="Get a surah's reference text",
 )
-def get_surah(surah_number: int) -> dict:
+def get_surah(surah_number: int, riwayah: str = "hafs") -> dict:
     _validate_surah(surah_number)
-    ref = get_surah_reference(surah_number)
+    riwayah = _validate_riwayah(riwayah, surah_number)
+    ref = get_surah_reference(surah_number, riwayah=riwayah)
     return ref.to_dict()
 
 
@@ -77,19 +90,30 @@ def get_surah(surah_number: int) -> dict:
     response_model=schemas.TranscriptionResponse,
     summary="Transcribe a recitation audio file (no comparison)",
 )
-async def transcribe(file: UploadFile = File(...)) -> dict:
+async def transcribe(
+    file: UploadFile = File(...),
+    riwayah: str = Form("hafs"),
+) -> dict:
+    try:
+        riwayah = normalize_riwayah(riwayah)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     audio_path = _save_upload(file)
     try:
-        result = await run_in_threadpool(asr_service.transcribe, str(audio_path))
+        result = await run_inference(asr_service.transcribe, str(audio_path), riwayah=riwayah)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     finally:
         audio_path.unlink(missing_ok=True)
+    asr = asr_service.backend_info(riwayah)
     return {
         "text": result.text,
         "language": result.language,
         "duration": result.duration,
         "segments": [s.to_dict() for s in result.segments],
+        "riwayah": riwayah,
+        "asr_backend": asr.get("active_backend") or asr["configured_backend"],
+        "asr_model": asr.get("active_model") or asr["configured_model"],
     }
 
 
@@ -102,11 +126,24 @@ async def transcribe(file: UploadFile = File(...)) -> dict:
 async def analyze(
     file: UploadFile = File(...),
     surah_number: int = Form(78),
+    start_ayah: int | None = Form(None),
+    end_ayah: int | None = Form(None),
+    auto_detect_ayah_range: bool | None = Form(None),
+    riwayah: str = Form("hafs"),
 ) -> dict:
     _validate_surah(surah_number)
+    riwayah = _validate_riwayah(riwayah, surah_number)
     audio_path = _save_upload(file)
     try:
-        return await run_in_threadpool(analyze_audio, surah_number, str(audio_path))
+        return await run_inference(
+            analyze_audio,
+            surah_number,
+            str(audio_path),
+            start_ayah=start_ayah,
+            end_ayah=end_ayah,
+            auto_detect_ayah_range=auto_detect_ayah_range,
+            riwayah=riwayah,
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     finally:
@@ -121,7 +158,16 @@ async def analyze(
 )
 async def analyze_transcript(payload: schemas.AnalyzeTextRequest) -> dict:
     _validate_surah(payload.surah_number)
-    return analyze_text(payload.surah_number, payload.transcribed_text)
+    riwayah = _validate_riwayah(payload.riwayah, payload.surah_number)
+    return await run_inference(
+        analyze_text,
+        payload.surah_number,
+        payload.transcribed_text,
+        start_ayah=payload.start_ayah,
+        end_ayah=payload.end_ayah,
+        auto_detect_ayah_range=payload.auto_detect_ayah_range,
+        riwayah=riwayah,
+    )
 
 
 @router.websocket("/stream")
@@ -144,12 +190,32 @@ async def stream_alignment(websocket: WebSocket) -> None:
                 break
             surah_number = int(data.get("surah_number", 78))
             transcript = str(data.get("transcribed_text", ""))
+            start_ayah = data.get("start_ayah") or data.get("startAyah")
+            end_ayah = data.get("end_ayah") or data.get("endAyah")
+            auto_detect = data.get("auto_detect_ayah_range")
+            if auto_detect is None:
+                auto_detect = data.get("autoDetectAyahRange")
+            riwayah_raw = data.get("riwayah")
             if surah_number not in settings.supported_surahs:
                 await websocket.send_json(
                     {"error": f"Surah {surah_number} not supported."}
                 )
                 continue
-            result = analyze_text(surah_number, transcript)
+            try:
+                riwayah = normalize_riwayah(riwayah_raw)
+                validate_riwayah_for_surah(riwayah, surah_number)
+            except ValueError as exc:
+                await websocket.send_json({"error": str(exc)})
+                continue
+            result = await run_inference(
+                analyze_text,
+                surah_number,
+                transcript,
+                start_ayah=int(start_ayah) if start_ayah is not None else None,
+                end_ayah=int(end_ayah) if end_ayah is not None else None,
+                auto_detect_ayah_range=auto_detect,
+                riwayah=riwayah,
+            )
             await websocket.send_json(result)
     except WebSocketDisconnect:
         return

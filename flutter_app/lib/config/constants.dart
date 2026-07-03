@@ -1,3 +1,7 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+
 class AppConstants {
   // Quran API (public)
   static const String quranApiBaseUrl = 'https://api.alquran.cloud/v1';
@@ -23,14 +27,16 @@ class AppConstants {
   //   - Android emulator -> http://10.0.2.2:8000 (maps to host localhost)
   //   - iOS simulator / web / desktop -> http://localhost:8000
   //   - Real device -> http://<your-PC-LAN-IP>:8000
-  //     (add that IP to android/app/src/debug/res/xml/network_security_config.xml)
-  static const String recitationApiBaseUrl = String.fromEnvironment(
-    'QURANY_API_BASE',
-    defaultValue: 'http://10.0.2.2:8000',
-  );
+  static String get recitationApiBaseUrl {
+    const override = String.fromEnvironment('QURANY_API_BASE');
+    if (override.isNotEmpty) return override;
+    if (kIsWeb) return 'http://localhost:8000';
+    if (!Platform.isAndroid) return 'http://localhost:8000';
+    return 'http://10.0.2.2:8000';
+  }
 
   // Surahs supported by the recitation backend (MVP scope).
-  static const List<int> serverSupportedSurahs = [78];
+  static const List<int> serverSupportedSurahs = [78, 2];
 
   // Audio settings
   static const int audioSampleRate = 16000;

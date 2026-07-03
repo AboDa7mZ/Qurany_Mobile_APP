@@ -84,6 +84,8 @@ class _RecitationResultScreenState extends State<RecitationResultScreen>
         return _DiffStatus.addition;
       case 'sequence':
         return _DiffStatus.sequence;
+      case 'harakat':
+        return _DiffStatus.harakat;
       default:
         return _DiffStatus.substitution;
     }
@@ -226,6 +228,14 @@ class _RecitationResultScreenState extends State<RecitationResultScreen>
                     _miniStat(Icons.cancel, '${session.mistakes} خطأ', QuranyTheme.errorRed),
                   ],
                 ),
+                if (session.harakatScore != null) ...[
+                  const SizedBox(height: 4),
+                  _miniStat(
+                    Icons.text_fields,
+                    'الحركات ${session.harakatScore!.toStringAsFixed(0)}%',
+                    Colors.teal,
+                  ),
+                ],
               ],
             ),
           ),
@@ -388,6 +398,11 @@ class _RecitationResultScreenState extends State<RecitationResultScreen>
         textColor = Colors.purple;
         borderColor = Colors.purple.withValues(alpha: 0.4);
         break;
+      case _DiffStatus.harakat:
+        bgColor = Colors.teal.withValues(alpha: 0.12);
+        textColor = Colors.teal;
+        borderColor = Colors.teal.withValues(alpha: 0.4);
+        break;
     }
 
     return Tooltip(
@@ -429,20 +444,24 @@ class _RecitationResultScreenState extends State<RecitationResultScreen>
               ),
               textDirection: TextDirection.rtl,
             ),
-            // Show what was actually recited (for substitution)
-            if (diff.status == _DiffStatus.substitution && diff.recitedWord != null)
+            // Show what was actually recited (for substitution / harakat)
+            if ((diff.status == _DiffStatus.substitution ||
+                    diff.status == _DiffStatus.harakat) &&
+                diff.recitedWord != null)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                 decoration: BoxDecoration(
-                  color: QuranyTheme.errorRed.withValues(alpha: 0.08),
+                  color: textColor.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
                   diff.recitedWord!,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
-                    color: QuranyTheme.errorRed,
-                    decoration: TextDecoration.lineThrough,
+                    color: textColor,
+                    decoration: diff.status == _DiffStatus.substitution
+                        ? TextDecoration.lineThrough
+                        : null,
                   ),
                   textDirection: TextDirection.rtl,
                 ),
@@ -722,6 +741,26 @@ class _RecitationResultScreenState extends State<RecitationResultScreen>
               ),
             ],
           ),
+          if (session.harakatScore != null) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _StatTile(
+                  icon: Icons.text_fields,
+                  label: 'أخطاء الحركات',
+                  value: '${session.harakatMistakes}',
+                  color: Colors.teal,
+                ),
+                const SizedBox(width: 12),
+                _StatTile(
+                  icon: Icons.spellcheck,
+                  label: 'كلمات تم فحصها',
+                  value: '${session.harakatChecked}',
+                  color: Colors.teal,
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 24),
 
           // Accuracy chart
@@ -790,6 +829,72 @@ class _RecitationResultScreenState extends State<RecitationResultScreen>
               ],
             ),
           ),
+
+          // Harakat accuracy chart -- separate from the word score above,
+          // shown only when the ASR backend actually output diacritics.
+          if (session.harakatScore != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 10,
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  const Text(
+                    'نسبة دقة الحركات',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: QuranyTheme.darkGreen,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: 140,
+                    height: 140,
+                    child: CustomPaint(
+                      painter: _AccuracyRingPainter(
+                        percentage: session.harakatScore!,
+                        color: Colors.teal,
+                      ),
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              '${session.harakatScore!.toStringAsFixed(1)}%',
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.teal,
+                              ),
+                            ),
+                            const Text(
+                              'دقة الحركات',
+                              style: TextStyle(fontSize: 12, color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'مبني على ${session.harakatChecked} كلمة تم فحص حركاتها',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+          ],
 
           const SizedBox(height: 16),
 
@@ -883,6 +988,8 @@ class _RecitationResultScreenState extends State<RecitationResultScreen>
         return 'إضافة';
       case 'sequence':
         return 'ترتيب';
+      case 'harakat':
+        return 'حركات';
       default:
         return type;
     }
@@ -898,6 +1005,8 @@ class _RecitationResultScreenState extends State<RecitationResultScreen>
         return Colors.blue;
       case 'sequence':
         return Colors.purple;
+      case 'harakat':
+        return Colors.teal;
       default:
         return Colors.grey;
     }
@@ -913,6 +1022,8 @@ class _RecitationResultScreenState extends State<RecitationResultScreen>
         return Icons.add_circle_outline;
       case 'sequence':
         return Icons.shuffle;
+      case 'harakat':
+        return Icons.text_fields;
       default:
         return Icons.error_outline;
     }
@@ -970,7 +1081,7 @@ class _StatTile extends StatelessWidget {
 
 // ─── Diff Helper types ───
 
-enum _DiffStatus { correct, substitution, omission, addition, sequence }
+enum _DiffStatus { correct, substitution, omission, addition, sequence, harakat }
 
 class _DiffWord {
   final String referenceWord;

@@ -26,3 +26,12 @@ httpx
 # Testing
 pytest
 pytest-asyncio
+
+# --- Optional: only needed when ASR_BACKEND=transformers (loading our
+# fine-tuned Kaggle checkpoint directly) or when ENABLE_TAJWEED_HEURISTICS
+# is on (qalqalah acoustic check uses librosa). Not required for the default
+# faster-whisper backend.
+transformers
+torch
+librosa
+numpy

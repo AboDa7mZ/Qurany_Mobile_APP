@@ -12,6 +12,7 @@ from .api.routes import router as api_router
 from .database.session import init_db
 from .config import settings
 from .services.asr_service import asr_service
+from .services.riwayah import SUPPORTED_RIWAYAT
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -24,9 +25,10 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Qurany Recitation Backend",
         description=(
-            "Receives recitation audio, transcribes it with faster-whisper, "
-            "aligns it against canonical Quran text, and returns word-by-word "
-            "feedback. MVP scope: Surah Al-Naba (chapter 78)."
+            "Receives recitation audio, transcribes it (faster-whisper or a "
+            "fine-tuned Whisper checkpoint), aligns it against canonical Quran "
+            "text, flags word-level mistakes, and layers best-effort Tajweed "
+            "heuristics on top. MVP scope: Surah Al-Naba (78) and Al-Baqarah (2)."
         ),
         version="0.1.0",
     )
@@ -52,13 +54,21 @@ def create_app() -> FastAPI:
         return {"service": settings.app_name, "docs": "/docs"}
 
     @app.get("/health", response_model=schemas.HealthResponse, summary="Health check")
-    def health() -> dict:
+    async def health() -> dict:
+        # Must stay async so this responds instantly even while a heavy
+        # analyze/transcribe job occupies the default sync thread pool.
+        hafs = asr_service.backend_info("hafs")
         return {
             "status": "ok",
             "app": settings.app_name,
-            "asr_model": settings.whisper_model,
+            "asr_backend": hafs["configured_backend"],
+            "asr_model": hafs["configured_model"],
+            "active_backend": hafs["active_backend"],
+            "active_model": hafs["active_model"],
             "asr_loaded": asr_service.is_loaded,
             "supported_surahs": settings.supported_surahs,
+            "supported_riwayat": list(SUPPORTED_RIWAYAT),
+            "models": asr_service.models_status(),
         }
 
     return app

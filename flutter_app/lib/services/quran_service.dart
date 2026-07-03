@@ -1,11 +1,16 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../models/verse.dart';
 import '../config/constants.dart';
 
 class QuranService extends ChangeNotifier {
+  static const Duration _httpTimeout = Duration(seconds: 15);
+
   final Map<int, List<Verse>> _surahCache = {};
   final _random = Random();
   bool _isLoading = false;
@@ -34,11 +39,13 @@ class QuranService extends ChangeNotifier {
     _safeNotify();
 
     try {
-      final response = await http.get(
-        Uri.parse(
-          '${AppConstants.quranApiBaseUrl}/surah/$surahNumber/ar.uthmani',
-        ),
-      );
+      final response = await http
+          .get(
+            Uri.parse(
+              '${AppConstants.quranApiBaseUrl}/surah/$surahNumber/ar.uthmani',
+            ),
+          )
+          .timeout(_httpTimeout);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -212,11 +219,13 @@ class QuranService extends ChangeNotifier {
     if (query.trim().isEmpty) return [];
 
     try {
-      final response = await http.get(
-        Uri.parse(
-          '${AppConstants.quranApiBaseUrl}/search/$query/all/ar',
-        ),
-      );
+      final response = await http
+          .get(
+            Uri.parse(
+              '${AppConstants.quranApiBaseUrl}/search/$query/all/ar',
+            ),
+          )
+          .timeout(_httpTimeout);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);

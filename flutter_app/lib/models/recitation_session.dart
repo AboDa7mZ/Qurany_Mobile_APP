@@ -17,6 +17,12 @@ class RecitationSession {
   final String? referenceText;
   final List<RecitationError> errors;
   final SyncMetadata sync;
+  // Harakat (tashkeel) correctness, scored independently from [mistakes]
+  // above. Null when nothing was checkable (e.g. the ASR backend in use
+  // doesn't output diacritics) -- treat as "not available", not 0.
+  final double? harakatScore;
+  final int harakatMistakes;
+  final int harakatChecked;
 
   RecitationSession({
     required this.id,
@@ -33,11 +39,17 @@ class RecitationSession {
     this.referenceText,
     this.errors = const [],
     SyncMetadata? sync,
+    this.harakatScore,
+    this.harakatMistakes = 0,
+    this.harakatChecked = 0,
   }) : sync = sync ?? SyncMetadata.fresh();
 
   RecitationSession copyWith({
     SyncMetadata? sync,
     bool? isDeleted,
+    double? harakatScore,
+    int? harakatMistakes,
+    int? harakatChecked,
   }) {
     return RecitationSession(
       id: id,
@@ -54,6 +66,9 @@ class RecitationSession {
       referenceText: referenceText,
       errors: errors,
       sync: sync ?? this.sync.markPending(isDeleted: isDeleted),
+      harakatScore: harakatScore ?? this.harakatScore,
+      harakatMistakes: harakatMistakes ?? this.harakatMistakes,
+      harakatChecked: harakatChecked ?? this.harakatChecked,
     );
   }
 
@@ -78,6 +93,11 @@ class RecitationSession {
               .toList() ??
           [],
       sync: SyncMetadata.fromJson(json),
+      harakatScore: json['harakatScore'] == null
+          ? null
+          : (json['harakatScore'] as num).toDouble(),
+      harakatMistakes: json['harakatMistakes'] ?? 0,
+      harakatChecked: json['harakatChecked'] ?? 0,
     );
   }
 
@@ -96,11 +116,14 @@ class RecitationSession {
         'referenceText': referenceText,
         'errors': errors.map((e) => e.toJson()).toList(),
         ...sync.toJson(),
+        'harakatScore': harakatScore,
+        'harakatMistakes': harakatMistakes,
+        'harakatChecked': harakatChecked,
       };
 }
 
 class RecitationError {
-  final String type; // 'substitution', 'omission', 'addition', 'sequence'
+  final String type; // 'substitution', 'omission', 'addition', 'sequence', 'harakat'
   final String expectedWord;
   final String recitedWord;
   final int wordIndex;
@@ -138,6 +161,8 @@ class RecitationError {
         return 'إضافة';
       case 'sequence':
         return 'ترتيب';
+      case 'harakat':
+        return 'حركات';
       default:
         return type;
     }
