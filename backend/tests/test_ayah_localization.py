@@ -9,7 +9,7 @@ from src.services.ayah_localization_service import localize_ayah_window
 
 
 def _baqarah_ayahs():
-    path = Path(__file__).resolve().parents[1] / "data" / "surah_cache" / "surah_2.json"
+    path = Path(__file__).resolve().parent / "fixtures" / "surah_2_hafs.json"
     data = json.loads(path.read_text(encoding="utf-8"))
     return data["ayahs"]
 
