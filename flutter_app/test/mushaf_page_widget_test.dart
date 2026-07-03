@@ -41,7 +41,7 @@ Future<void> _pumpPage(
                 child: MushafPageWidget(
                   page: page,
                   fontSize: fontSize,
-                  fontFamily: 'QPCHafs',
+                  fontFamily: 'MeQuran',
                   onWordTap: (_) {},
                 ),
               ),

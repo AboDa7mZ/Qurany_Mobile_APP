@@ -155,10 +155,9 @@ class _SearchScreenState extends State<SearchScreen> {
                               onTap: () {
                                 Navigator.pushNamed(
                                   context,
-                                  AppRoutes.quranReader,
+                                  AppRoutes.mushafReader,
                                   arguments: {
                                     'surahNumber': result['surahNumber'],
-                                    'surahName': result['surahName'],
                                   },
                                 );
                               },

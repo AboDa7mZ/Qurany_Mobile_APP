@@ -70,7 +70,7 @@ class _SurahListScreenState extends State<SurahListScreen> {
                     child: DropdownButton<String>(
                       value: qiraatService.selectedQiraat,
                       icon: const Icon(Icons.arrow_drop_down, color: QuranyTheme.primaryGreen),
-                      style: const TextStyle(color: QuranyTheme.primaryGreen, fontWeight: FontWeight.bold, fontFamily: 'QPCHafs'),
+                      style: const TextStyle(color: QuranyTheme.primaryGreen, fontWeight: FontWeight.bold, fontFamily: 'MeQuran'),
                       onChanged: (String? newValue) {
                         if (newValue != null) {
                           qiraatService.setQiraat(newValue);
@@ -164,29 +164,9 @@ class _SurahListScreenState extends State<SurahListScreen> {
                             size: 18,
                             color: QuranyTheme.primaryGreen,
                           )
-                        : Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.format_list_bulleted),
-                                color: QuranyTheme.primaryGreen,
-                                tooltip: 'عرض كقائمة آيات',
-                                onPressed: () {
-                                  Navigator.pushNamed(
-                                    context,
-                                    AppRoutes.quranReader,
-                                    arguments: {
-                                      'surahNumber': surahNumber,
-                                      'surahName': surahName,
-                                    },
-                                  );
-                                },
-                              ),
-                              AppIcons.forwardChevron(
-                                color: QuranyTheme.primaryGreen,
-                                size: 18,
-                              ),
-                            ],
+                        : AppIcons.forwardChevron(
+                            color: QuranyTheme.primaryGreen,
+                            size: 18,
                           ),
                     onTap: () {
                       if (_selectForRecitation) {
@@ -200,9 +180,6 @@ class _SurahListScreenState extends State<SurahListScreen> {
                           },
                         );
                       } else {
-                        // The Mushaf page layout is the default reading
-                        // experience; the standard ayah-list view is still
-                        // reachable via the list icon above.
                         Navigator.pushNamed(
                           context,
                           AppRoutes.mushafReader,

@@ -57,6 +57,7 @@ jobs:
       contents: write
     env:
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      DISCORD_TECH_SQUAD_ROLE_ID: ${{ secrets.DISCORD_TECH_SQUAD_ROLE_ID }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -111,7 +112,7 @@ jobs:
           VERSION_FULL: ${{ steps.version.outputs.full }}
           ARTIFACT_NAME: qurany-${{ steps.version.outputs.full }}-arm64
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          ARTIFACTS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts
+          ARTIFACT_URL: ${{ steps.apk-artifact.outputs.artifact-url }}
         run: |
           set -euo pipefail
 
@@ -120,9 +121,45 @@ jobs:
             exit 1
           fi
 
-          export VERSION_FULL ARTIFACT_NAME ARTIFACTS_URL RUN_URL
+          if [ -z "${ARTIFACT_URL:-}" ]; then
+            echo "Artifact download URL is missing from upload-artifact outputs."
+            exit 1
+          fi
 
-          payload=$(python -c "import json, os; v=os.environ['VERSION_FULL']; artifact=os.environ['ARTIFACT_NAME']; artifacts_url=os.environ['ARTIFACTS_URL']; run_url=os.environ['RUN_URL']; print(json.dumps({'content': f'**Qurany v{v}** — all tests passed ✅\\n\\n• Backend tests: passed\\n• Flutter tests: passed\\n• Tag: \`v{v}\`\\n• **Download APK (artifact):** {artifacts_url}\\n  Artifact name: \`{artifact}\`\\n• Workflow run: {run_url}'}))")
+          echo "Artifact download URL: ${ARTIFACT_URL}"
+
+          export VERSION_FULL ARTIFACT_NAME ARTIFACT_URL RUN_URL
+          export DISCORD_TECH_SQUAD_ROLE_ID="${DISCORD_TECH_SQUAD_ROLE_ID:-}"
+
+          payload=$(python <<'PY'
+import json, os
+
+v = os.environ["VERSION_FULL"]
+artifact = os.environ["ARTIFACT_NAME"]
+artifact_url = os.environ["ARTIFACT_URL"]
+run_url = os.environ["RUN_URL"]
+role_id = os.environ.get("DISCORD_TECH_SQUAD_ROLE_ID", "").strip()
+
+mention = f"<@&{role_id}>" if role_id else "@Tech Squad"
+
+content = (
+    f"{mention}\n\n"
+    f"**Qurany v{v}** — all tests passed ✅\n\n"
+    f"• Backend tests: passed\n"
+    f"• Flutter tests: passed\n"
+    f"• Tag: `{v}`\n"
+    f"• **Download APK:** {artifact_url}\n"
+    f"  Artifact name: `{artifact}`\n"
+    f"• Workflow run: {run_url}"
+)
+
+payload = {"content": content}
+if role_id:
+    payload["allowed_mentions"] = {"parse": [], "roles": [role_id]}
+
+print(json.dumps(payload))
+PY
+)
 
           http_code=$(curl -sS -o /tmp/discord-response.json -w "%{http_code}" \
             -X POST "$DISCORD_WEBHOOK_URL" \

@@ -47,11 +47,10 @@ class _MushafReaderScreenState extends State<MushafReaderScreen> {
   final MushafLayoutService _service = MushafLayoutService();
   late final PageController _pageController;
   late int _currentPage;
-  // Slightly smaller than a "print-perfect" size so that fonts with wider
-  // natural letterforms (e.g. MeQuran, Nastaleeq) have enough headroom to
-  // fit real mushaf lines on narrower phones without needing to shrink.
+  // Slightly smaller than a "print-perfect" size so MeQuran has enough
+  // headroom to fit real mushaf lines on narrower phones without shrinking.
   double _fontSize = 19.0;
-  String _selectedFontFamily = 'QPCHafs';
+  static const String _mushafFontFamily = 'MeQuran';
   String? _selectedVerseKey;
   bool _hideAyahs = false;
 
@@ -127,17 +126,6 @@ class _MushafReaderScreenState extends State<MushafReaderScreen> {
                 _showAddBookmarkDialog(context, surahNumber, surahName, _currentPage);
               }
             },
-          ),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.font_download_outlined),
-            tooltip: 'تغيير الخط',
-            onSelected: (value) => setState(() => _selectedFontFamily = value),
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'QPCHafs', child: Text('حفص (QPC)')),
-              PopupMenuItem(
-                  value: 'KFGQPCNastaleeq', child: Text('نستعليق')),
-              PopupMenuItem(value: 'MeQuran', child: Text('MeQuran')),
-            ],
           ),
           IconButton(
             icon: const Icon(Icons.text_decrease),
@@ -223,7 +211,7 @@ class _MushafReaderScreenState extends State<MushafReaderScreen> {
                       child: MushafPageWidget(
                         page: page,
                         fontSize: _fontSize,
-                        fontFamily: _selectedFontFamily,
+                        fontFamily: _mushafFontFamily,
                         selectedVerseKey: _selectedVerseKey,
                         hideAyahs: _hideAyahs,
                         revealedWordIds: _revealedWordIds,
@@ -323,7 +311,7 @@ class _MushafReaderScreenState extends State<MushafReaderScreen> {
                   child: Text(
                     ayahText,
                     style: const TextStyle(
-                      fontFamily: 'QPCHafs',
+                      fontFamily: _mushafFontFamily,
                       fontSize: 20,
                       height: 1.8,
                     ),
