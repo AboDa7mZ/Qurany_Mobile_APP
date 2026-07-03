@@ -102,9 +102,20 @@ class _RecitationScreenState extends State<RecitationScreen>
       duration: const Duration(milliseconds: 2000),
     )..repeat();
 
-    _audioService.requestPermission();
-    _initSpeech();
+    _initMicAndSpeech();
     _loadVerses();
+  }
+
+  /// Request the microphone permission and only then initialize speech
+  /// recognition. These two steps must be sequenced: on a fresh install,
+  /// initializing the speech engine while the permission dialog is still
+  /// pending makes it fail and left _speechAvailable stuck at false until
+  /// the app was killed and relaunched (the "mic doesn't work in the APK"
+  /// bug). If the user denies here, _startRecording retries later.
+  Future<void> _initMicAndSpeech() async {
+    final granted = await _audioService.requestPermission();
+    if (!granted) return;
+    await _initSpeech();
   }
 
   /// Initialize speech recognition
@@ -240,6 +251,17 @@ class _RecitationScreenState extends State<RecitationScreen>
   }
 
   Future<void> _startRecording() async {
+    // Recovery path: initial setup may have run before the user granted the
+    // mic permission (fresh install). Re-request and re-initialize here so
+    // the record button works as soon as permission is granted, without
+    // requiring an app restart.
+    if (!_speechAvailable) {
+      final granted = await _audioService.requestPermission();
+      if (granted) {
+        await _initSpeech();
+      }
+    }
+
     // Keep screen on while recording
     WakelockPlus.enable();
 
@@ -282,13 +304,25 @@ class _RecitationScreenState extends State<RecitationScreen>
         _statusText =
             'التعرف على الكلام غير متاح على هذا الجهاز. تأكد من إعطاء إذن الميكروفون.';
       });
+      // After "don't ask again", the permission dialog can never reappear --
+      // the only way forward is the app-settings screen, so offer a shortcut.
+      final permanentlyDenied = await _audioService.isPermanentlyDenied();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'التعرف على الكلام غير متاح. تأكد من إعطاء إذن الميكروفون.',
+              permanentlyDenied
+                  ? 'إذن الميكروفون مرفوض. فعّله من إعدادات التطبيق.'
+                  : 'التعرف على الكلام غير متاح. تأكد من إعطاء إذن الميكروفون.',
             ),
             backgroundColor: QuranyTheme.errorRed,
+            action: permanentlyDenied
+                ? SnackBarAction(
+                    label: 'الإعدادات',
+                    textColor: Colors.white,
+                    onPressed: () => _audioService.openSettings(),
+                  )
+                : null,
           ),
         );
       }
