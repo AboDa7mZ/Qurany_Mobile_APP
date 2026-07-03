@@ -121,19 +121,19 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
               if (_fontSize < 48) setState(() => _fontSize += 2);
             },
           ),
-          // Recitation mic — only for Hafs (backend & audio use Hafs numbering)
-          if (!widget.isBazzi)
-            IconButton(
-              icon: const Icon(Icons.mic_rounded),
-              tooltip: 'تلاوة هذه السورة',
-              onPressed: () {
-                Navigator.pushNamed(context, AppRoutes.recitation, arguments: {
-                  'surahNumber': widget.surahNumber,
-                  'surahName': widget.surahName,
-                  'mode': 'free',
-                });
-              },
-            ),
+          // Recitation mic
+          IconButton(
+            icon: const Icon(Icons.mic_rounded),
+            tooltip: 'تلاوة هذه السورة',
+            onPressed: () {
+              Navigator.pushNamed(context, AppRoutes.recitation, arguments: {
+                'surahNumber': widget.surahNumber,
+                'surahName': widget.surahName,
+                'mode': 'free',
+                'qiraat': widget.qiraat,
+              });
+            },
+          ),
         ],
       ),
       body: _isLoading

@@ -56,6 +56,8 @@ class RecitationApiService {
     required String audioFilePath,
     required int surahNumber,
     String riwayah = 'hafs',
+    int? startAyah,
+    int? endAyah,
     Duration timeout = const Duration(seconds: 90),
   }) async {
     final file = File(audioFilePath);
@@ -70,6 +72,12 @@ class RecitationApiService {
       ..fields['surah_number'] = surahNumber.toString()
       ..fields['riwayah'] = riwayah
       ..files.add(await http.MultipartFile.fromPath('file', audioFilePath));
+    if (startAyah != null) {
+      request.fields['start_ayah'] = startAyah.toString();
+    }
+    if (endAyah != null) {
+      request.fields['end_ayah'] = endAyah.toString();
+    }
 
     try {
       final streamed = await _client.send(request).timeout(timeout);
@@ -96,18 +104,24 @@ class RecitationApiService {
     required int surahNumber,
     required String transcribedText,
     String riwayah = 'hafs',
+    int? startAyah,
+    int? endAyah,
     Duration timeout = const Duration(seconds: 30),
   }) async {
     try {
+      final body = <String, dynamic>{
+        'surah_number': surahNumber,
+        'transcribed_text': transcribedText,
+        'riwayah': riwayah,
+      };
+      if (startAyah != null) body['startAyah'] = startAyah;
+      if (endAyah != null) body['endAyah'] = endAyah;
+
       final resp = await _client
           .post(
             Uri.parse('$baseUrl/api/v1/analyze-text'),
             headers: {'Content-Type': 'application/json'},
-            body: json.encode({
-              'surah_number': surahNumber,
-              'transcribed_text': transcribedText,
-              'riwayah': riwayah,
-            }),
+            body: json.encode(body),
           )
           .timeout(timeout);
       if (resp.statusCode != 200) {
@@ -135,11 +149,13 @@ extension SafeRecitationApi on RecitationApiService {
   Future<Map<String, dynamic>?> tryAnalyzeRecitation({
     required String audioFilePath,
     required int surahNumber,
+    String riwayah = 'hafs',
   }) async {
     try {
       return await analyzeRecitation(
         audioFilePath: audioFilePath,
         surahNumber: surahNumber,
+        riwayah: riwayah,
       );
     } catch (e) {
       debugPrint('Server recitation analysis failed, using on-device: $e');

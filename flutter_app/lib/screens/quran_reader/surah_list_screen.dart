@@ -67,10 +67,9 @@ class _SurahListScreenState extends State<SurahListScreen> {
             ? null
             : AppIcons.backButton(context: context),
         actions: [
-          if (!_selectForRecitation)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Consumer<QiraatService>(
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Consumer<QiraatService>(
                 builder: (context, qiraatService, child) {
                   return DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
@@ -176,6 +175,7 @@ class _SurahListScreenState extends State<SurahListScreen> {
                           ),
                     onTap: () {
                       if (_selectForRecitation) {
+                        final qiraat = context.read<QiraatService>().selectedQiraat;
                         if (_recitationMode == 'tahfeez') {
                           _showAyahRangeSelector(context, surahNumber, surahName);
                         } else {
@@ -186,6 +186,7 @@ class _SurahListScreenState extends State<SurahListScreen> {
                               'surahNumber': surahNumber,
                               'surahName': surahName,
                               'mode': _recitationMode,
+                              'qiraat': qiraat,
                             },
                           );
                         }
@@ -348,6 +349,7 @@ class _SurahListScreenState extends State<SurahListScreen> {
                     child: ElevatedButton(
                       onPressed: () {
                         Navigator.pop(context); // close bottom sheet
+                        final qiraat = context.read<QiraatService>().selectedQiraat;
                         Navigator.pushNamed(
                           context,
                           AppRoutes.recitation,
@@ -355,6 +357,7 @@ class _SurahListScreenState extends State<SurahListScreen> {
                             'surahNumber': surahNumber,
                             'surahName': surahName,
                             'mode': _recitationMode,
+                            'qiraat': qiraat,
                             'startAyah': startAyah,
                             'endAyah': endAyah,
                           },

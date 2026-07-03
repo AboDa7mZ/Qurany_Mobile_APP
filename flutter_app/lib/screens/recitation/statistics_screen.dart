@@ -2,17 +2,109 @@ import 'package:flutter/material.dart';
 import '../../config/theme.dart';
 import '../../config/routes.dart';
 
-class StatisticsScreen extends StatelessWidget {
+/// One harakat (tashkeel) mistake extracted from an AI analysis result.
+class _TashkeelMistake {
+  final int verseNumber;
+  final String expectedWord;
+  final String recitedWord;
+
+  const _TashkeelMistake({
+    required this.verseNumber,
+    required this.expectedWord,
+    required this.recitedWord,
+  });
+}
+
+class StatisticsScreen extends StatefulWidget {
   final int totalVerses;
   final int totalCorrectedFaults;
   final Map<String, int> faultsDetail;
+
+  /// Pending per-ayah AI analysis results (queued in the background during
+  /// the tahfeez session). Order matches [tashkeelAyahLabels].
+  final List<Future<Map<String, dynamic>?>> tashkeelFutures;
+  final List<Map<String, dynamic>> tashkeelAyahLabels;
 
   const StatisticsScreen({
     super.key,
     this.totalVerses = 0,
     this.totalCorrectedFaults = 0,
     this.faultsDetail = const {},
+    this.tashkeelFutures = const [],
+    this.tashkeelAyahLabels = const [],
   });
+
+  @override
+  State<StatisticsScreen> createState() => _StatisticsScreenState();
+}
+
+class _StatisticsScreenState extends State<StatisticsScreen> {
+  bool _tashkeelLoading = false;
+  bool _tashkeelAvailable = false;
+  double? _tashkeelScore;
+  int _tashkeelMistakeCount = 0;
+  int _tashkeelCheckedCount = 0;
+  List<_TashkeelMistake> _tashkeelMistakes = const [];
+
+  int get totalVerses => widget.totalVerses;
+  int get totalCorrectedFaults => widget.totalCorrectedFaults;
+  Map<String, int> get faultsDetail => widget.faultsDetail;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.tashkeelFutures.isNotEmpty) {
+      _tashkeelLoading = true;
+      _collectTashkeelResults();
+    }
+  }
+
+  Future<void> _collectTashkeelResults() async {
+    // Most futures resolved during the session (while Husary recited the
+    // next ayah); typically only the last ayah is still processing here.
+    final results = await Future.wait(widget.tashkeelFutures);
+
+    int mistakes = 0;
+    int checked = 0;
+    final collected = <_TashkeelMistake>[];
+
+    for (int i = 0; i < results.length; i++) {
+      final result = results[i];
+      if (result == null) continue;
+
+      final label =
+          i < widget.tashkeelAyahLabels.length ? widget.tashkeelAyahLabels[i] : null;
+      final verseNumber = (label?['verseNumber'] as int?) ??
+          (result['detectedAyahStart'] as int?) ??
+          0;
+
+      mistakes += (result['harakatMistakes'] as num?)?.toInt() ?? 0;
+      checked += (result['harakatChecked'] as num?)?.toInt() ?? 0;
+
+      final errors = result['errors'] as List? ?? const [];
+      for (final e in errors) {
+        if (e is Map && e['type'] == 'harakat') {
+          collected.add(_TashkeelMistake(
+            verseNumber: verseNumber,
+            expectedWord: (e['expectedWord'] ?? '') as String,
+            recitedWord: (e['recitedWord'] ?? '') as String,
+          ));
+        }
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _tashkeelLoading = false;
+      _tashkeelAvailable = checked > 0;
+      _tashkeelMistakeCount = mistakes;
+      _tashkeelCheckedCount = checked;
+      _tashkeelScore = checked > 0
+          ? ((checked - mistakes) / checked * 100).clamp(0.0, 100.0)
+          : null;
+      _tashkeelMistakes = collected;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -174,6 +266,13 @@ class StatisticsScreen extends StatelessWidget {
                 ),
               ],
 
+              // Tashkeel (harakat) report from the fine-tuned AI model,
+              // analyzed in the background during the session.
+              if (_tashkeelLoading || _tashkeelAvailable) ...[
+                const SizedBox(height: 32),
+                _buildTashkeelSection(),
+              ],
+
               const SizedBox(height: 48),
 
               SizedBox(
@@ -207,6 +306,198 @@ class StatisticsScreen extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildTashkeelSection() {
+    if (_tashkeelLoading) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: QuranyTheme.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: QuranyTheme.border),
+        ),
+        child: const Row(
+          children: [
+            SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2.5),
+            ),
+            SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                'جاري تحليل التشكيل بالذكاء الاصطناعي...',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: QuranyTheme.darkGreen,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final score = _tashkeelScore ?? 0.0;
+    final scoreColor = score >= 85
+        ? QuranyTheme.success
+        : score >= 70
+            ? QuranyTheme.warning
+            : QuranyTheme.errorRed;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'نتيجة التشكيل (الحركات):',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: QuranyTheme.darkGreen,
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Overall tashkeel score card
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: QuranyTheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: QuranyTheme.border),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 64,
+                height: 64,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CircularProgressIndicator(
+                      value: score / 100,
+                      strokeWidth: 6,
+                      backgroundColor: QuranyTheme.border,
+                      valueColor: AlwaysStoppedAnimation<Color>(scoreColor),
+                    ),
+                    Text(
+                      '${score.toStringAsFixed(0)}%',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: scoreColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'دقة التشكيل',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: QuranyTheme.darkGreen,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _tashkeelMistakeCount == 0
+                          ? 'تشكيل سليم في جميع الكلمات التي تم فحصها ($_tashkeelCheckedCount كلمة)'
+                          : '$_tashkeelMistakeCount ${_tashkeelMistakeCount == 1 ? 'خطأ' : 'أخطاء'} في التشكيل من أصل $_tashkeelCheckedCount كلمة',
+                      style: const TextStyle(fontSize: 13, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Per-word harakat mistakes
+        if (_tashkeelMistakes.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          ..._tashkeelMistakes.map(
+            (m) => Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: QuranyTheme.surface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: QuranyTheme.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'آية ${m.verseNumber}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          children: [
+                            const Text(
+                              'الصحيح',
+                              style: TextStyle(fontSize: 11, color: Colors.grey),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              m.expectedWord,
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: QuranyTheme.success,
+                                fontFamily: 'MeQuran',
+                              ),
+                              textDirection: TextDirection.rtl,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.compare_arrows_rounded,
+                          color: Colors.grey, size: 20),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            const Text(
+                              'قراءتك',
+                              style: TextStyle(fontSize: 11, color: Colors.grey),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              m.recitedWord.isEmpty ? '—' : m.recitedWord,
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: QuranyTheme.errorRed,
+                                fontFamily: 'MeQuran',
+                              ),
+                              textDirection: TextDirection.rtl,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 

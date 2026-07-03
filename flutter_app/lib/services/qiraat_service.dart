@@ -13,6 +13,15 @@ class QiraatService extends ChangeNotifier {
 
   String get selectedQiraat => _selectedQiraat;
 
+  bool get isBazzi => _selectedQiraat == 'البزي';
+
+  /// Backend `/api/v1/analyze` riwayah query value.
+  String get riwayah => isBazzi ? 'bazzi' : 'hafs';
+
+  /// Map UI qira'a label to backend riwayah id.
+  static String riwayahFromQiraat(String qiraat) =>
+      qiraat == 'البزي' ? 'bazzi' : 'hafs';
+
   void _loadQiraat() {
     _selectedQiraat = _prefs.getString(_storageKey) ?? 'حفص';
   }

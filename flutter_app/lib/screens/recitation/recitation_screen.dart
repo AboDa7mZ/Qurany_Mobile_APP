@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -14,6 +15,8 @@ import '../../models/verse.dart';
 import '../../models/recitation_session.dart';
 import '../../services/audio_service.dart';
 import '../../services/quran_service.dart';
+import '../../services/al_bazzi_service.dart';
+import '../../services/qiraat_service.dart';
 import '../../services/recitation_api_service.dart';
 import '../../services/recitation_history_service.dart';
 import '../../services/schedule_service.dart';
@@ -27,12 +30,15 @@ class RecitationScreen extends StatefulWidget {
   final String? planId;
   final int? startAyah;
   final int? endAyah;
+  /// Qira'a label: `حفص` or `البزي`. Falls back to [QiraatService] when null.
+  final String? qiraat;
 
   const RecitationScreen({
     super.key,
     this.surahNumber,
     this.surahName,
     this.mode = 'free',
+    this.qiraat,
     this.planDayNumber,
     this.planId,
     this.startAyah,
@@ -51,6 +57,7 @@ class _RecitationScreenState extends State<RecitationScreen>
   final stt.SpeechToText _speech = stt.SpeechToText();
   bool _speechAvailable = false;
   bool _usingSpeechRecognition = false;
+  String _arabicLocaleId = 'ar';
   bool _hasShownErrorAlarm = false;
 
   // Recording state
@@ -68,6 +75,7 @@ class _RecitationScreenState extends State<RecitationScreen>
   bool _isLoadingVerses = true;
   int _selectedSurah = 1;
   String _selectedSurahName = 'الفاتحة';
+  late String _qiraat;
 
   // Real-time transcription
   String _liveTranscription = '';
@@ -91,6 +99,23 @@ class _RecitationScreenState extends State<RecitationScreen>
   double _husaryProgress = 0.0;
   StreamSubscription? _husaryPositionSub;
   StreamSubscription? _husaryCompleteSub;
+  /// Invalidates stale [onPlayerComplete] callbacks when a new ayah starts.
+  int _husaryPlayToken = 0;
+
+  // Speech session guards — prevent duplicate listen() calls (Android mic beep).
+  bool _speechIsListening = false;
+  int _speechRestartCount = 0;
+  DateTime? _lastSpeechRestartAt;
+  static const int _maxSpeechRestartsPerTurn = 8;
+  static const Duration _speechRestartCooldown = Duration(milliseconds: 1500);
+
+  /// True once amplitude crosses the voice threshold during a verse-mode turn.
+  bool _voiceDetectedDuringTurn = false;
+  static const double _voiceAmplitudeThreshold = 0.12;
+
+  /// Hardware WAV capture via the record plugin (Android privacy mic indicator).
+  bool _usingHardwareMic = false;
+  bool _husaryCompletionHandled = false;
 
   // Animation controllers
   late AnimationController _pulseController;
@@ -101,10 +126,17 @@ class _RecitationScreenState extends State<RecitationScreen>
   Timer? _silenceTimer;
   final Map<int, int> _verseFaults = {};
 
+  // Tahfeez background tashkeel analysis: one pending server result per
+  // accepted ayah, resolved while Husary recites the next ayah. Rendered as
+  // an aggregated tashkeel report on the statistics screen at session end.
+  final List<Future<Map<String, dynamic>?>> _tashkeelFutures = [];
+  final List<Map<String, dynamic>> _tashkeelAyahLabels = [];
+
   void _resetSilenceTimer() {
     _silenceTimer?.cancel();
     if (_isRecording) {
-      _silenceTimer = Timer(const Duration(seconds: 3), () async {
+      final pauseSeconds = _isVerseMode ? 6 : 3;
+      _silenceTimer = Timer(Duration(seconds: pauseSeconds), () async {
         debugPrint('Silence timeout. Automatically stopping recording.');
         if (mounted && _isRecording) {
           await _stopRecording();
@@ -120,6 +152,7 @@ class _RecitationScreenState extends State<RecitationScreen>
     _selectedSurahName = (widget.surahName != null && widget.surahName!.isNotEmpty)
         ? widget.surahName!
         : AppConstants.surahNames[_selectedSurah < 1 ? 0 : _selectedSurah - 1];
+    _qiraat = widget.qiraat ?? 'حفص';
     _showReference = widget.mode == 'free' || widget.mode == 'tahfeez';
     _verseTextVisible = widget.mode != 'tasmee3';
 
@@ -133,10 +166,23 @@ class _RecitationScreenState extends State<RecitationScreen>
       duration: const Duration(milliseconds: 2000),
     )..repeat();
 
+    _husaryPlayer.setReleaseMode(ReleaseMode.stop);
     _audioService.requestPermission();
     _initSpeech();
     _loadVerses();
   }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (widget.qiraat == null) {
+      _qiraat = context.read<QiraatService>().selectedQiraat;
+    }
+  }
+
+  bool get _isBazzi => _qiraat == 'البزي';
+
+  String get _riwayah => QiraatService.riwayahFromQiraat(_qiraat);
 
   /// Initialize speech recognition
   Future<void> _initSpeech() async {
@@ -144,6 +190,7 @@ class _RecitationScreenState extends State<RecitationScreen>
       _speechAvailable = await _speech.initialize(
         onError: (error) {
           debugPrint('Speech error: ${error.errorMsg}');
+          _speechIsListening = false;
           if (_isRecording &&
               (error.errorMsg == 'error_no_match' ||
                error.errorMsg == 'error_speech_timeout' ||
@@ -154,13 +201,41 @@ class _RecitationScreenState extends State<RecitationScreen>
         },
         onStatus: (status) {
           debugPrint('Speech status: $status');
-          if (status == 'notListening' && _isRecording && _usingSpeechRecognition) {
-            _restartSpeechListening();
+          if (status == 'listening') {
+            _speechIsListening = true;
+          } else if (status == 'notListening' || status == 'done') {
+            _speechIsListening = false;
+            if (status == 'notListening' &&
+                _isRecording &&
+                _usingSpeechRecognition) {
+              _restartSpeechListening();
+            }
           }
         },
       );
       if (_speechAvailable) {
-        debugPrint('Speech recognition initialized - Arabic available');
+        final locales = await _speech.locales();
+        final arabicLocales = locales
+            .where((l) => l.localeId.toLowerCase().startsWith('ar'))
+            .toList();
+        if (arabicLocales.isNotEmpty) {
+          const preferred = ['ar-sa', 'ar-eg', 'ar-ae', 'ar'];
+          for (final pref in preferred) {
+            final match = arabicLocales.where(
+              (l) => l.localeId.toLowerCase().startsWith(pref),
+            );
+            if (match.isNotEmpty) {
+              _arabicLocaleId = match.first.localeId;
+              break;
+            }
+          }
+          if (_arabicLocaleId == 'ar' && arabicLocales.isNotEmpty) {
+            _arabicLocaleId = arabicLocales.first.localeId;
+          }
+        }
+        debugPrint(
+          'Speech recognition initialized — locale: $_arabicLocaleId',
+        );
       }
     } catch (e) {
       debugPrint('Speech init failed: $e');
@@ -168,11 +243,26 @@ class _RecitationScreenState extends State<RecitationScreen>
     }
   }
 
-  /// Restart speech listening (called when engine auto-stops)
+  /// Restart speech listening (called when engine auto-stops).
+  /// Debounced to avoid Android mic-start beep spam.
   void _restartSpeechListening() {
     if (!_isRecording || !_speechAvailable) return;
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (_isRecording && mounted) {
+
+    final now = DateTime.now();
+    if (_lastSpeechRestartAt != null &&
+        now.difference(_lastSpeechRestartAt!) < _speechRestartCooldown) {
+      return;
+    }
+    if (_speechRestartCount >= _maxSpeechRestartsPerTurn) {
+      debugPrint('Speech restart limit reached for this turn.');
+      return;
+    }
+
+    _lastSpeechRestartAt = now;
+    _speechRestartCount++;
+
+    Future.delayed(const Duration(milliseconds: 400), () {
+      if (_isRecording && mounted && !_speechIsListening) {
         _startSpeechListening();
       }
     });
@@ -181,19 +271,111 @@ class _RecitationScreenState extends State<RecitationScreen>
   bool get _isVerseMode => widget.mode == 'tahfeez' || widget.mode == 'tasmee3';
 
   /// Whole-surah modes for a backend-supported surah can use server analysis.
-  bool get _serverAnalysisEligible =>
-      (widget.mode == 'free' || widget.mode == 'memorization') &&
-      AppConstants.serverSupportedSurahs.contains(_selectedSurah);
+  bool get _serverAnalysisEligible {
+    if (widget.mode != 'free' && widget.mode != 'memorization') return false;
+    if (!AppConstants.serverSupportedSurahs.contains(_selectedSurah)) {
+      return false;
+    }
+    // Bazzi model + reference are scoped to Surah Al-Baqarah only.
+    if (_isBazzi && _selectedSurah != 2) return false;
+    return true;
+  }
 
-  /// Start the speech listening session
+  /// Tahfeez mode: per-ayah recordings are uploaded in the background for
+  /// tashkeel (harakat) analysis while Husary recites the next ayah.
+  bool get _tahfeezTashkeelEligible {
+    if (widget.mode != 'tahfeez' || _verses.isEmpty) return false;
+    final surah = _verses[_currentVerseIndex].surahNumber;
+    if (!AppConstants.serverSupportedSurahs.contains(surah)) return false;
+    if (_isBazzi && surah != 2) return false;
+    return true;
+  }
+
+  bool get _currentVerseServerEligible {
+    if (_verses.isEmpty) return false;
+    final surah = _verses[_currentVerseIndex].surahNumber;
+    if (!AppConstants.serverSupportedSurahs.contains(surah)) return false;
+    if (_isBazzi && surah != 2) return false;
+    return true;
+  }
+
+  bool get _hasUsableRecording =>
+      _recordedAudioPath != null &&
+      (_voiceDetectedDuringTurn || _recordingSeconds >= 1);
+
+  /// Apply server analyze result to word highlights and live transcript.
+  void _applyCorrectionFromServer(Map<String, dynamic> result) {
+    final transcript = result['transcribed_text']?.toString() ??
+        result['transcribedText']?.toString() ??
+        '';
+    if (transcript.isNotEmpty) {
+      _liveTranscription = transcript;
+      _updateWordMatching(transcript);
+      return;
+    }
+
+    final errors = (result['errors'] as List?)
+            ?.whereType<Map<String, dynamic>>()
+            .toList() ??
+        [];
+    if (errors.isEmpty || _verses.isEmpty) return;
+
+    final refText = _verses[_currentVerseIndex].text;
+    final originalRefWords =
+        refText.split(' ').where((w) => w.isNotEmpty).toList();
+    final errorByIndex = <int, Map<String, dynamic>>{};
+    for (final e in errors) {
+      final idx = (e['wordIndex'] as num?)?.toInt();
+      if (idx != null && idx >= 0 && idx < originalRefWords.length) {
+        errorByIndex[idx] = e;
+      }
+    }
+
+    final matches = <_WordMatch>[];
+    for (int i = 0; i < originalRefWords.length; i++) {
+      final err = errorByIndex[i];
+      if (err == null) {
+        matches.add(_WordMatch(
+          word: originalRefWords[i],
+          status: _MatchStatus.correct,
+        ));
+      } else {
+        final type = err['type']?.toString() ?? 'substitution';
+        final recited = err['recitedWord']?.toString() ??
+            err['recited_word']?.toString() ??
+            '';
+        matches.add(_WordMatch(
+          word: originalRefWords[i],
+          status: type == 'omission'
+              ? _MatchStatus.error
+              : _MatchStatus.error,
+          recitedAs: recited.isEmpty ? null : recited,
+        ));
+      }
+    }
+    if (mounted) setState(() => _matchedWords = matches);
+  }
+
+  /// Start the speech listening session (fire-and-forget — do NOT await listen()).
   void _startSpeechListening() {
     if (!_speechAvailable) return;
-    debugPrint('Starting speech listening...');
+    debugPrint('Starting speech listening (locale: $_arabicLocaleId)...');
+    try {
+      if (_speech.isListening) {
+        _speech.stop();
+      }
+    } catch (_) {}
+    _speechIsListening = false;
+
+    final pauseFor = _isVerseMode
+        ? const Duration(seconds: 8)
+        : const Duration(seconds: 5);
+
     _speech.listen(
       onResult: _onSpeechResult,
-      localeId: 'ar',
+      localeId: _arabicLocaleId,
       listenFor: const Duration(seconds: 120),
-      pauseFor: const Duration(seconds: 5),
+      pauseFor: pauseFor,
       listenOptions: stt.SpeechListenOptions(
         listenMode: stt.ListenMode.dictation,
         cancelOnError: false,
@@ -213,6 +395,10 @@ class _RecitationScreenState extends State<RecitationScreen>
 
     setState(() {
       _liveTranscription = recognizedText;
+      _voiceDetectedDuringTurn = true;
+      if (_usingHardwareMic && mounted) {
+        _statusText = 'جاري التصحيح... اقرأ الآن';
+      }
       _updateWordMatching(recognizedText);
     });
 
@@ -223,6 +409,13 @@ class _RecitationScreenState extends State<RecitationScreen>
     setState(() => _isLoadingVerses = true);
     final quranService = context.read<QuranService>();
     List<Verse> loadedVerses = [];
+
+    Future<List<Verse>> loadSurahVerses(int surahNumber) async {
+      if (_isBazzi && surahNumber == 2) {
+        return AlBazziService().getBaqaraVerses();
+      }
+      return quranService.getSurahVerses(surahNumber);
+    }
     
     if (widget.planDayNumber != null && widget.planId != null) {
       final planService = context.read<LearningPlanService>();
@@ -230,11 +423,11 @@ class _RecitationScreenState extends State<RecitationScreen>
       final task = plan?.dailyTasks.firstWhere((t) => t.dayNumber == widget.planDayNumber);
       if (task != null) {
         if (task.startSurah == task.endSurah) {
-          final verses = await quranService.getSurahVerses(task.startSurah);
+          final verses = await loadSurahVerses(task.startSurah);
           loadedVerses = verses.where((v) => v.verseNumber >= task.startVerse && v.verseNumber <= task.endVerse).toList();
         } else {
           for (int s = task.startSurah; s <= task.endSurah; s++) {
-            final verses = await quranService.getSurahVerses(s);
+            final verses = await loadSurahVerses(s);
             if (s == task.startSurah) {
               loadedVerses.addAll(verses.where((v) => v.verseNumber >= task.startVerse));
             } else if (s == task.endSurah) {
@@ -247,13 +440,13 @@ class _RecitationScreenState extends State<RecitationScreen>
         _selectedSurah = task.startSurah;
         _selectedSurahName = AppConstants.surahNames[task.startSurah < 1 ? 0 : task.startSurah - 1];
       } else {
-        loadedVerses = await quranService.getSurahVerses(_selectedSurah);
+        loadedVerses = await loadSurahVerses(_selectedSurah);
       }
     } else if (widget.startAyah != null && widget.endAyah != null) {
-      final verses = await quranService.getSurahVerses(_selectedSurah);
+      final verses = await loadSurahVerses(_selectedSurah);
       loadedVerses = verses.where((v) => v.verseNumber >= widget.startAyah! && v.verseNumber <= widget.endAyah!).toList();
     } else {
-      loadedVerses = await quranService.getSurahVerses(_selectedSurah);
+      loadedVerses = await loadSurahVerses(_selectedSurah);
     }
 
     if (mounted) {
@@ -311,65 +504,200 @@ class _RecitationScreenState extends State<RecitationScreen>
     }
   }
 
+  /// Stop playback and release audio focus so the mic can open.
+  Future<void> _releaseAudioForMic() async {
+    try {
+      await _husaryPlayer.stop();
+    } catch (_) {}
+    try {
+      if (_speech.isListening) {
+        await _speech.stop();
+      }
+    } catch (_) {}
+    try {
+      await _audioService.cancelRecording();
+    } catch (_) {}
+    await Future.delayed(const Duration(milliseconds: 400));
+  }
+
+  void _attachMicAmplitudeListener() {
+    _amplitudeSubscription?.cancel();
+    _amplitudeSubscription = _audioService.amplitudeStream.listen((amp) {
+      if (!mounted || !_isRecording) return;
+      final voiceActive = amp > _voiceAmplitudeThreshold;
+      setState(() {
+        _amplitudes = [..._amplitudes.skip(1), amp];
+        if (voiceActive) {
+          _voiceDetectedDuringTurn = true;
+          if (_usingHardwareMic) {
+            _statusText = 'الميكروفون يعمل — اقرأ الآن';
+          }
+        }
+      });
+      if (voiceActive) {
+        _resetSilenceTimer();
+      }
+    });
+  }
+
+  /// Verse-mode mic: hardware recorder first (Android privacy), then best-effort STT.
+  Future<void> _acquireMicForVerseTurn() async {
+    await _releaseAudioForMic();
+
+    final hasMic = await _audioService.requestPermission();
+    if (!hasMic) {
+      _abortRecordingTurn(
+        'يلزم إذن الميكروفون. افتح إعدادات التطبيق وفعّل الميكروفون.',
+      );
+      return;
+    }
+
+    if (!_speechAvailable) {
+      await _initSpeech();
+    }
+
+    _usingHardwareMic = false;
+    _usingSpeechRecognition = false;
+
+    // Hardware recorder first — this is what registers mic use on Android.
+    final started = await _audioService.startRecording();
+    if (!started) {
+      _abortRecordingTurn(
+        'تعذر فتح الميكروفون. تحقق من الإذن في إعدادات الجهاز.',
+      );
+      return;
+    }
+
+    _usingHardwareMic = true;
+    _attachMicAmplitudeListener();
+    _durationSubscription?.cancel();
+    _durationSubscription = _audioService.durationStream.listen((dur) {
+      if (mounted) setState(() => _recordingSeconds = dur);
+    });
+    if (mounted) {
+      setState(() => _statusText = 'الميكروفون يعمل — اقرأ الآن');
+    }
+
+    // Best-effort live STT for word highlighting (works on some devices alongside
+    // the recorder; on exclusive-mic Android it may stay silent — server validates on stop).
+    if (_speechAvailable) {
+      await Future.delayed(const Duration(milliseconds: 250));
+      if (mounted && _isRecording && _usingHardwareMic) {
+        _startSpeechListening();
+      }
+    }
+  }
+
+  void _abortRecordingTurn(String message) {
+    _pulseController.stop();
+    _pulseController.reset();
+    _amplitudeSubscription?.cancel();
+    _durationSubscription?.cancel();
+    _silenceTimer?.cancel();
+    WakelockPlus.disable();
+    if (mounted) {
+      setState(() {
+        _isRecording = false;
+        _statusText = message;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: QuranyTheme.errorRed,
+        ),
+      );
+    }
+  }
+
   Future<void> _startRecording() async {
+    if (_isRecording) return;
+
     // Keep screen on while recording
     WakelockPlus.enable();
 
     _pulseController.repeat(reverse: true);
+    _speechRestartCount = 0;
+    _lastSpeechRestartAt = null;
+    _voiceDetectedDuringTurn = false;
 
-    // Pre-populate matchedWords with all reference words in "pending" state
-    // so the highlighted view is shown immediately during recording
-    final allRefWords = (widget.mode == 'free' && _verses.isNotEmpty)
-      ? _verses.map((v) => v.text).join(' ').split(' ').where((w) => w.isNotEmpty).toList()
-      : <String>[];
+    // Pre-populate matchedWords with reference words in "pending" state.
+    final List<String> refWordsForUi;
+    if (widget.mode == 'free' && _verses.isNotEmpty) {
+      refWordsForUi = _verses
+          .map((v) => v.text)
+          .join(' ')
+          .split(' ')
+          .where((w) => w.isNotEmpty)
+          .toList();
+    } else if (_isVerseMode && _verses.isNotEmpty) {
+      refWordsForUi = _verses[_currentVerseIndex]
+          .text
+          .split(' ')
+          .where((w) => w.isNotEmpty)
+          .toList();
+    } else {
+      refWordsForUi = <String>[];
+    }
 
     setState(() {
       _isRecording = true;
       _hasShownErrorAlarm = false;
       _tasmee3HintCount = 0;
       _liveTranscription = '';
-      _matchedWords = allRefWords
+      _matchedWords = refWordsForUi
           .map((w) => _WordMatch(word: w, status: _MatchStatus.pending))
           .toList();
       _statusText = 'جاري التسجيل... اقرأ الآن';
     });
 
     _silenceTimer?.cancel();
-    _silenceTimer = Timer(const Duration(seconds: 8), () async {
-      if (mounted && _isRecording && _liveTranscription.isEmpty) {
+    final initialSilenceSeconds = _isVerseMode ? 18 : 8;
+    _silenceTimer = Timer(Duration(seconds: initialSilenceSeconds), () async {
+      if (!mounted || !_isRecording) return;
+      final noInput = _usingHardwareMic
+          ? !_voiceDetectedDuringTurn
+          : _liveTranscription.isEmpty;
+      if (noInput) {
         debugPrint('Silence timeout. Automatically stopping recording.');
         await _stopRecording();
       }
     });
 
-    // Use on-device speech recognition for live transcription
     _usingSpeechRecognition = false;
-
-    // Capture raw audio in parallel for server-side (faster-whisper) analysis.
-    // Best-effort: on platforms where the speech recognizer holds the mic
-    // exclusively this may fail, in which case we silently fall back to the
-    // on-device transcript/comparison.
+    _usingHardwareMic = false;
     _recordedAudioPath = null;
+
+    if (_isVerseMode) {
+      await _acquireMicForVerseTurn();
+      return;
+    }
+
+    final hasMic = await _audioService.requestPermission();
+    if (!hasMic) {
+      _abortRecordingTurn('يلزم إذن الميكروفون للتسجيل');
+      return;
+    }
+
+    // Parallel WAV for server analysis in free/memorization only.
     if (_serverAnalysisEligible) {
       try {
         final started = await _audioService.startRecording();
         if (started) {
-          _amplitudeSubscription?.cancel();
-          _amplitudeSubscription =
-              _audioService.amplitudeStream.listen((amp) {
-            if (!mounted) return;
-            setState(() {
-              _amplitudes = [..._amplitudes.skip(1), amp];
-            });
-          });
+          _usingHardwareMic = true;
+          _attachMicAmplitudeListener();
         }
       } catch (e) {
         debugPrint('Parallel audio capture unavailable: $e');
       }
     }
 
+    if (!_speechAvailable) {
+      await _initSpeech();
+    }
+
     if (_speechAvailable) {
       _startSpeechListening();
+      _durationSubscription?.cancel();
       _durationSubscription = Stream.periodic(
         const Duration(seconds: 1),
         (i) => i + 1,
@@ -395,11 +723,31 @@ class _RecitationScreenState extends State<RecitationScreen>
           ),
         );
       }
-      return;
     }
   }
 
   // ─────────────────── Husary Audio (حصري) ───────────────────
+
+  void _cancelHusarySubscriptions() {
+    _husaryPositionSub?.cancel();
+    _husaryPositionSub = null;
+    _husaryCompleteSub?.cancel();
+    _husaryCompleteSub = null;
+  }
+
+  void _onHusaryPlaybackFinished(int playToken) async {
+    if (!mounted || playToken != _husaryPlayToken || _isRecording) return;
+    if (_husaryCompletionHandled) return;
+    _husaryCompletionHandled = true;
+    _cancelHusarySubscriptions();
+    setState(() {
+      _isPlayingHusary = false;
+      _husaryFinished = true;
+      _husaryProgress = 1.0;
+      _statusText = 'دورك الآن — جاري التسجيل...';
+    });
+    await _startRecording();
+  }
 
   /// Play Al-Husary's recitation for the current verse in Tahfeez mode
   Future<void> _playHusaryVerse() async {
@@ -407,6 +755,13 @@ class _RecitationScreenState extends State<RecitationScreen>
 
     final verse = _verses[_currentVerseIndex];
     final audioUrl = verse.husaryAudioUrl;
+    final playToken = ++_husaryPlayToken;
+    _husaryCompletionHandled = false;
+
+    _cancelHusarySubscriptions();
+    try {
+      await _husaryPlayer.stop();
+    } catch (_) {}
 
     setState(() {
       _isPlayingHusary = true;
@@ -416,36 +771,28 @@ class _RecitationScreenState extends State<RecitationScreen>
     });
 
     try {
-      // Listen for position updates (progress bar)
-      _husaryPositionSub?.cancel();
       _husaryPositionSub = _husaryPlayer.onPositionChanged.listen((pos) {
+        if (playToken != _husaryPlayToken) return;
         _husaryPlayer.getDuration().then((dur) {
           if (dur != null && dur.inMilliseconds > 0 && mounted) {
             setState(() {
               _husaryProgress = pos.inMilliseconds / dur.inMilliseconds;
             });
+            if (pos.inMilliseconds >= dur.inMilliseconds - 250) {
+              _onHusaryPlaybackFinished(playToken);
+            }
           }
         });
       });
 
-      // Listen for completion
-      _husaryCompleteSub?.cancel();
-      _husaryCompleteSub = _husaryPlayer.onPlayerComplete.listen((_) async {
-        if (mounted) {
-          setState(() {
-            _isPlayingHusary = false;
-            _husaryFinished = true;
-            _husaryProgress = 1.0;
-            _statusText = 'دورك الآن — جاري التسجيل...';
-          });
-          await _startRecording();
-        }
+      _husaryCompleteSub = _husaryPlayer.onPlayerComplete.listen((_) {
+        _onHusaryPlaybackFinished(playToken);
       });
 
       await _husaryPlayer.play(UrlSource(audioUrl));
     } catch (e) {
       debugPrint('Husary playback error: $e');
-      if (mounted) {
+      if (mounted && playToken == _husaryPlayToken) {
         setState(() {
           _isPlayingHusary = false;
           _husaryFinished = true;
@@ -457,22 +804,26 @@ class _RecitationScreenState extends State<RecitationScreen>
             backgroundColor: Colors.orange.shade700,
           ),
         );
+        await _startRecording();
       }
     }
   }
 
-  /// Stop Husary playback
+  /// Stop Husary playback and begin the user's recitation turn.
   Future<void> _stopHusary() async {
+    _husaryPlayToken++;
+    _cancelHusarySubscriptions();
     await _husaryPlayer.stop();
-    _husaryPositionSub?.cancel();
-    _husaryCompleteSub?.cancel();
     if (mounted) {
       setState(() {
         _isPlayingHusary = false;
         _husaryFinished = true;
         _husaryProgress = 0.0;
-        _statusText = 'دورك الآن — اقرأ الآية';
+        _statusText = 'دورك الآن — جاري التسجيل...';
       });
+      if (!_isRecording) {
+        await _startRecording();
+      }
     }
   }
 
@@ -487,6 +838,8 @@ class _RecitationScreenState extends State<RecitationScreen>
   /// Navigate to next verse in Tahfeez mode, resetting Husary state
   void _tahfeezNextVerse() {
     if (_currentVerseIndex < _verses.length - 1) {
+      _husaryPlayToken++;
+      _cancelHusarySubscriptions();
       _husaryPlayer.stop();
       setState(() {
         _currentVerseIndex++;
@@ -498,6 +851,8 @@ class _RecitationScreenState extends State<RecitationScreen>
   /// Navigate to previous verse in Tahfeez mode
   void _tahfeezPrevVerse() {
     if (_currentVerseIndex > 0) {
+      _husaryPlayToken++;
+      _cancelHusarySubscriptions();
       _husaryPlayer.stop();
       setState(() {
         _currentVerseIndex--;
@@ -508,6 +863,8 @@ class _RecitationScreenState extends State<RecitationScreen>
 
   void _tasmee3NextVerse() {
     if (_currentVerseIndex < _verses.length - 1) {
+      _husaryPlayToken++;
+      _cancelHusarySubscriptions();
       _husaryPlayer.stop();
       setState(() {
         _currentVerseIndex++;
@@ -518,6 +875,8 @@ class _RecitationScreenState extends State<RecitationScreen>
 
   void _tasmee3PrevVerse() {
     if (_currentVerseIndex > 0) {
+      _husaryPlayToken++;
+      _cancelHusarySubscriptions();
       _husaryPlayer.stop();
       setState(() {
         _currentVerseIndex--;
@@ -529,6 +888,9 @@ class _RecitationScreenState extends State<RecitationScreen>
   void _resetVerseState() {
     _matchedWords = [];
     _liveTranscription = '';
+    _voiceDetectedDuringTurn = false;
+    _usingHardwareMic = false;
+    _husaryCompletionHandled = false;
     _isPlayingHusary = false;
     _husaryFinished = false;
     _husaryProgress = 0.0;
@@ -540,12 +902,15 @@ class _RecitationScreenState extends State<RecitationScreen>
   void _updateWordMatching(String transcribedText) {
     if (_verses.isEmpty) return;
 
-    final refText = _verses.map((v) => v.text).join(' ');
+    final refText = _isVerseMode
+        ? _verses[_currentVerseIndex].text
+        : _verses.map((v) => v.text).join(' ');
     final refWords = _normalizeArabic(refText).split(' ');
     final transWords = _normalizeArabic(transcribedText).split(' ');
     final originalRefWords = refText.split(' ');
     final bool liveFreeMode = widget.mode == 'free' && _isRecording;
     final bool liveTasmee3Mode = widget.mode == 'tasmee3' && _isRecording;
+    final bool liveTahfeezMode = widget.mode == 'tahfeez' && _isRecording;
     bool errorDetected = false;
 
     final matches = <_WordMatch>[];
@@ -580,9 +945,11 @@ class _RecitationScreenState extends State<RecitationScreen>
             matches.add(_WordMatch(
               word: originalRefWords[ri],
               status: _MatchStatus.error,
-              recitedAs: (liveFreeMode || liveTasmee3Mode) ? null : transWords[ti],
+              recitedAs: liveFreeMode ? null : transWords[ti],
             ));
-            if (liveFreeMode || liveTasmee3Mode) errorDetected = true;
+            if (liveFreeMode || liveTasmee3Mode || liveTahfeezMode) {
+              errorDetected = true;
+            }
             ti++;
           }
         }
@@ -599,11 +966,19 @@ class _RecitationScreenState extends State<RecitationScreen>
       }
     }
 
-    if (errorDetected && !_hasShownErrorAlarm && (liveFreeMode || liveTasmee3Mode)) {
+    if (errorDetected &&
+        !_hasShownErrorAlarm &&
+        (liveFreeMode || liveTasmee3Mode || liveTahfeezMode)) {
       _hasShownErrorAlarm = true;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(liveTasmee3Mode ? 'خطأ في التلاوة، يمكنك استخدام التلميح' : 'كلمة خاطئة، يرجى إعادة قراءتها'),
+          content: Text(
+            liveTasmee3Mode
+                ? 'خطأ في التلاوة، يمكنك استخدام التلميح'
+                : liveTahfeezMode
+                    ? 'خطأ في التلاوة، حاول مرة أخرى'
+                    : 'كلمة خاطئة، يرجى إعادة قراءتها',
+          ),
           backgroundColor: QuranyTheme.errorRed,
           duration: const Duration(seconds: 2),
         ),
@@ -663,6 +1038,7 @@ class _RecitationScreenState extends State<RecitationScreen>
       await _speech.stop();
       _usingSpeechRecognition = false;
     }
+    _speechIsListening = false;
 
     setState(() {
       _isRecording = false;
@@ -672,6 +1048,11 @@ class _RecitationScreenState extends State<RecitationScreen>
 
     WakelockPlus.disable();
 
+    // Mark that we captured audio even if amplitude stayed low.
+    if (_usingHardwareMic && _recordingSeconds >= 1) {
+      _voiceDetectedDuringTurn = true;
+    }
+
     // Stop the parallel WAV capture (if it was running).
     try {
       final stopped = await _audioService.stopRecording();
@@ -679,20 +1060,13 @@ class _RecitationScreenState extends State<RecitationScreen>
     } catch (_) {}
 
     if (widget.mode == 'tasmee3') {
-      if (mounted) {
-        setState(() {
-          _isProcessing = false;
-          _statusText = _liveTranscription.isEmpty
-              ? 'لم يتم التعرف على نص الآية. حاول مرة أخرى.'
-              : 'اكتملت الآية — راجع التصحيح ثم انتقل للتالية';
-        });
-      }
+      await _finishTasmee3Turn();
       return;
     }
 
     if (widget.mode == 'tahfeez') {
       if (mounted) {
-        _validateTahfeez();
+        await _validateTahfeez();
       }
       return;
     }
@@ -706,6 +1080,7 @@ class _RecitationScreenState extends State<RecitationScreen>
       final serverResult = await api.tryAnalyzeRecitation(
         audioFilePath: _recordedAudioPath!,
         surahNumber: _selectedSurah,
+        riwayah: _riwayah,
       );
       if (serverResult != null && mounted) {
         _saveAndNavigateToResult(serverResult);
@@ -729,78 +1104,288 @@ class _RecitationScreenState extends State<RecitationScreen>
     }
   }
 
-  void _validateTahfeez() async {
-    if (_liveTranscription.isEmpty) {
-      _verseFaults[_currentVerseIndex] = (_verseFaults[_currentVerseIndex] ?? 0) + 1;
-      setState(() {
-        _isProcessing = false;
-        _statusText = 'لم يتم التعرف على الصوت. جاري إعادة تشغيل الشيخ...';
-      });
-      Future.delayed(const Duration(milliseconds: 2000), () {
-        if (mounted) _playHusaryVerse();
-      });
+  /// Upload the accepted ayah for tashkeel analysis in the background.
+  void _queueTashkeelAnalysis(String transcript) {
+    if (!_tahfeezTashkeelEligible) return;
+
+    final audioPath = _recordedAudioPath;
+    if (audioPath == null && transcript.trim().isEmpty) return;
+
+    final verse = _verses[_currentVerseIndex];
+    final api = context.read<RecitationApiService>();
+    final riwayah = _riwayah;
+
+    _tashkeelAyahLabels.add({
+      'surahNumber': verse.surahNumber,
+      'verseNumber': verse.verseNumber,
+      'text': verse.text,
+    });
+    _tashkeelFutures.add(() async {
+      try {
+        if (audioPath != null) {
+          return await api.analyzeRecitation(
+            audioFilePath: audioPath,
+            surahNumber: verse.surahNumber,
+            riwayah: riwayah,
+            startAyah: verse.verseNumber,
+            endAyah: verse.verseNumber,
+            timeout: const Duration(seconds: 180),
+          );
+        }
+        return await api.analyzeText(
+          surahNumber: verse.surahNumber,
+          transcribedText: transcript,
+          riwayah: riwayah,
+          startAyah: verse.verseNumber,
+          endAyah: verse.verseNumber,
+        );
+      } catch (e) {
+        debugPrint('Tashkeel analysis failed for ayah ${verse.verseNumber}: $e');
+        return null;
+      } finally {
+        if (audioPath != null) {
+          try {
+            await File(audioPath).delete();
+          } catch (_) {}
+        }
+      }
+    }());
+    _recordedAudioPath = null;
+  }
+
+  /// Reuse an analyze response from tahfeez validation (avoids a second upload).
+  void _queueTashkeelFromAnalyzeResult(
+    Map<String, dynamic> result,
+    Verse verse,
+  ) {
+    if (!_tahfeezTashkeelEligible) return;
+    _tashkeelAyahLabels.add({
+      'surahNumber': verse.surahNumber,
+      'verseNumber': verse.verseNumber,
+      'text': verse.text,
+    });
+    _tashkeelFutures.add(Future.value(result));
+  }
+
+  Future<void> _finishTasmee3Turn() async {
+    if (_liveTranscription.isNotEmpty) {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+          _statusText = 'اكتملت الآية — راجع التصحيح ثم انتقل للتالية';
+        });
+      }
       return;
     }
 
+    final audioPath = _recordedAudioPath;
+    if (audioPath != null &&
+        (_hasUsableRecording || _usingHardwareMic) &&
+        _currentVerseServerEligible) {
+      if (mounted) {
+        setState(() => _statusText = 'جاري التعرف على الصوت...');
+      }
+      try {
+        final verse = _verses[_currentVerseIndex];
+        final api = context.read<RecitationApiService>();
+        final result = await api.analyzeRecitation(
+          audioFilePath: audioPath,
+          surahNumber: verse.surahNumber,
+          riwayah: _riwayah,
+          startAyah: verse.verseNumber,
+          endAyah: verse.verseNumber,
+          timeout: const Duration(seconds: 180),
+        );
+        if (mounted) {
+          _applyCorrectionFromServer(result);
+        }
+      } catch (e) {
+        debugPrint('Tasmee3 server transcription failed: $e');
+      } finally {
+        try {
+          await File(audioPath).delete();
+        } catch (_) {}
+        _recordedAudioPath = null;
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _isProcessing = false;
+        _statusText = _liveTranscription.isEmpty
+            ? 'لم يتم التعرف على نص الآية. حاول مرة أخرى.'
+            : 'اكتملت الآية — راجع التصحيح ثم انتقل للتالية';
+      });
+    }
+  }
+
+  Future<void> _validateTahfeez() async {
+    // Live STT produced a transcript during the turn.
+    if (_liveTranscription.isNotEmpty) {
+      await _validateTahfeezWithSimilarity(
+        _computeLocalSimilarity(_liveTranscription),
+        tashkeelTranscript: _liveTranscription,
+      );
+      return;
+    }
+
+    // Hardware recording — analyze WAV on the server for transcript + correction.
+    Map<String, dynamic>? serverResult;
+    final audioPath = _recordedAudioPath;
+
+    if (audioPath != null &&
+        (_hasUsableRecording || _usingHardwareMic) &&
+        _currentVerseServerEligible) {
+      if (mounted) {
+        setState(() => _statusText = 'جاري تحليل التلاوة على الخادم...');
+      }
+      try {
+        final verse = _verses[_currentVerseIndex];
+        final api = context.read<RecitationApiService>();
+        serverResult = await api.analyzeRecitation(
+          audioFilePath: audioPath,
+          surahNumber: verse.surahNumber,
+          riwayah: _riwayah,
+          startAyah: verse.verseNumber,
+          endAyah: verse.verseNumber,
+          timeout: const Duration(seconds: 180),
+        );
+        if (mounted) {
+          _applyCorrectionFromServer(serverResult);
+        }
+      } catch (e) {
+        debugPrint('Tahfeez server analysis failed: $e');
+      } finally {
+        try {
+          await File(audioPath).delete();
+        } catch (_) {}
+        _recordedAudioPath = null;
+      }
+    }
+
+    if (_liveTranscription.isEmpty) {
+      _verseFaults[_currentVerseIndex] =
+          (_verseFaults[_currentVerseIndex] ?? 0) + 1;
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+          _statusText = serverResult == null && audioPath != null
+              ? 'تعذر الاتصال بالخادم. تحقق من الشبكة وحاول مرة أخرى.'
+              : 'لم يتم التعرف على الصوت. جاري إعادة تشغيل الشيخ...';
+        });
+      }
+      if (serverResult == null) {
+        Future.delayed(const Duration(milliseconds: 2500), () {
+          if (mounted) _playHusaryVerse();
+        });
+      }
+      return;
+    }
+
+    final similarity = serverResult != null
+        ? ((serverResult['similarity_score'] as num?) ?? 0).toDouble() / 100
+        : _computeLocalSimilarity(_liveTranscription);
+
+    // Brief pause so the user can see word highlights before advancing.
+    if (mounted) {
+      setState(() => _isProcessing = false);
+    }
+    await Future.delayed(const Duration(milliseconds: 1500));
+
+    await _validateTahfeezWithSimilarity(
+      similarity,
+      serverResult: serverResult,
+      tashkeelTranscript: _liveTranscription,
+    );
+  }
+
+  double _computeLocalSimilarity(String transcription) {
     final verseText = _verses[_currentVerseIndex].text;
     final refWords = verseText.split(' ').where((w) => w.isNotEmpty).toList();
-    final transWords = _normalizeArabic(_liveTranscription).split(' ').where((w) => w.isNotEmpty).toList();
+    final transWords = _normalizeArabic(transcription)
+        .split(' ')
+        .where((w) => w.isNotEmpty)
+        .toList();
     final normalizedRef = refWords.map((w) => _normalizeArabic(w)).toList();
 
     int matchedCount = 0;
     int ti = 0;
     for (int ri = 0; ri < refWords.length; ri++) {
       if (ti < transWords.length && ri < normalizedRef.length) {
-        if (normalizedRef[ri] == transWords[ti] || _isSimilar(normalizedRef[ri], transWords[ti])) {
+        if (normalizedRef[ri] == transWords[ti] ||
+            _isSimilar(normalizedRef[ri], transWords[ti])) {
           matchedCount++;
           ti++;
         } else {
-          // Allow skipping a wrong transcribed word
           bool foundAhead = false;
-          for (int ahead = 1; ahead <= 2 && ti + ahead < transWords.length; ahead++) {
-             if (normalizedRef[ri] == transWords[ti + ahead] || _isSimilar(normalizedRef[ri], transWords[ti + ahead])) {
-                 matchedCount++;
-                 ti += ahead + 1;
-                 foundAhead = true;
-                 break;
-             }
+          for (int ahead = 1;
+              ahead <= 2 && ti + ahead < transWords.length;
+              ahead++) {
+            if (normalizedRef[ri] == transWords[ti + ahead] ||
+                _isSimilar(normalizedRef[ri], transWords[ti + ahead])) {
+              matchedCount++;
+              ti += ahead + 1;
+              foundAhead = true;
+              break;
+            }
           }
           if (!foundAhead) {
-              ti++;
+            ti++;
           }
         }
       }
     }
+    return refWords.isNotEmpty ? matchedCount / refWords.length : 0;
+  }
 
-    final double similarity = refWords.isNotEmpty ? matchedCount / refWords.length : 0;
-    
+  Future<void> _validateTahfeezWithSimilarity(
+    double similarity, {
+    Map<String, dynamic>? serverResult,
+    required String tashkeelTranscript,
+  }) async {
     if (similarity >= 0.8) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تلاوة صحيحة!'),
-          backgroundColor: QuranyTheme.correctGreen,
-          duration: Duration(milliseconds: 800),
-        ),
-      );
-      
-      setState(() {
-        _isProcessing = false;
-      });
+      if (serverResult != null) {
+        _queueTashkeelFromAnalyzeResult(
+          serverResult,
+          _verses[_currentVerseIndex],
+        );
+      } else {
+        _queueTashkeelAnalysis(tashkeelTranscript);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تلاوة صحيحة!'),
+            backgroundColor: QuranyTheme.correctGreen,
+            duration: Duration(milliseconds: 800),
+          ),
+        );
+        setState(() {
+          _isProcessing = false;
+        });
+      }
 
       final isLastVerse = _currentVerseIndex == _verses.length - 1;
       if (isLastVerse) {
         if (widget.planDayNumber != null && widget.planId != null) {
-          await context.read<LearningPlanService>().markTaskCompleted(widget.planId!, widget.planDayNumber!);
+          if (mounted) {
+            await context
+                .read<LearningPlanService>()
+                .markTaskCompleted(widget.planId!, widget.planDayNumber!);
+          }
         }
 
         final totalVerses = _verses.length;
-        final totalCorrectedFaults = _verseFaults.values.fold(0, (sum, val) => sum + val);
+        final totalCorrectedFaults =
+            _verseFaults.values.fold(0, (sum, val) => sum + val);
         final Map<String, int> faultsDetail = {};
         _verseFaults.forEach((idx, count) {
           if (idx < _verses.length) {
             final v = _verses[idx];
             final sIdx = v.surahNumber < 1 ? 0 : v.surahNumber - 1;
-            faultsDetail['${AppConstants.surahNames[sIdx]} آية ${v.verseNumber}'] = count;
+            faultsDetail[
+                '${AppConstants.surahNames[sIdx]} آية ${v.verseNumber}'] = count;
           }
         });
 
@@ -812,33 +1397,38 @@ class _RecitationScreenState extends State<RecitationScreen>
               'totalVerses': totalVerses,
               'totalCorrectedFaults': totalCorrectedFaults,
               'faultsDetail': faultsDetail,
+              'tashkeelFutures': _tashkeelFutures,
+              'tashkeelAyahLabels': _tashkeelAyahLabels,
             },
           );
         }
         return;
       }
-      
+
       _tahfeezNextVerse();
-      
+
       Future.delayed(const Duration(milliseconds: 1200), () {
         if (mounted) _playHusaryVerse();
       });
     } else {
-      _verseFaults[_currentVerseIndex] = (_verseFaults[_currentVerseIndex] ?? 0) + 1;
+      _verseFaults[_currentVerseIndex] =
+          (_verseFaults[_currentVerseIndex] ?? 0) + 1;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تلاوة غير صحيحة، استمع للشيخ وحاول مرة أخرى'),
-          backgroundColor: QuranyTheme.errorRed,
-          duration: Duration(seconds: 2),
-        ),
-      );
-      setState(() {
-        _isProcessing = false;
-        _statusText = 'تلاوة غير صحيحة، استمع للشيخ...';
-      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تلاوة غير صحيحة، استمع للشيخ وحاول مرة أخرى'),
+            backgroundColor: QuranyTheme.errorRed,
+            duration: Duration(seconds: 2),
+          ),
+        );
+        setState(() {
+          _isProcessing = false;
+          _statusText = 'تلاوة غير صحيحة، استمع للشيخ...';
+        });
+      }
 
-      Future.delayed(const Duration(milliseconds: 2000), () {
+      Future.delayed(const Duration(milliseconds: 2500), () {
         if (mounted) _playHusaryVerse();
       });
     }
@@ -970,6 +1560,12 @@ class _RecitationScreenState extends State<RecitationScreen>
   }
 
   void _saveAndNavigateToResult(Map<String, dynamic> result) {
+    final harakatScoreRaw = result['harakatScore'] ?? result['harakat_score'];
+    final harakatMistakesRaw =
+        result['harakatMistakes'] ?? result['harakat_mistakes'];
+    final harakatCheckedRaw =
+        result['harakatChecked'] ?? result['harakat_checked'];
+
     final session = RecitationSession(
       id: const Uuid().v4(),
       surahNumber: _selectedSurah,
@@ -987,6 +1583,11 @@ class _RecitationScreenState extends State<RecitationScreen>
               ?.map((e) => RecitationError.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
+      harakatScore: harakatScoreRaw == null
+          ? null
+          : (harakatScoreRaw as num).toDouble(),
+      harakatMistakes: (harakatMistakesRaw as num?)?.toInt() ?? 0,
+      harakatChecked: (harakatCheckedRaw as num?)?.toInt() ?? 0,
     );
 
     // Save to history
@@ -2443,6 +3044,18 @@ class _RecitationScreenState extends State<RecitationScreen>
                     ),
                   );
                 },
+              ),
+            ),
+          if (_isRecording && _usingHardwareMic)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                '● الميكروفون نشط',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: QuranyTheme.correctGreen,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           if (_isRecording) const SizedBox(height: 8),

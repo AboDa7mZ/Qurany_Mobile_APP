@@ -83,6 +83,7 @@ class AppRoutes {
             surahNumber: args?['surahNumber'],
             surahName: args?['surahName'],
             mode: args?['mode'] ?? 'free',
+            qiraat: args?['qiraat'],
             planDayNumber: args?['planDayNumber'],
             planId: args?['planId'],
             startAyah: args?['startAyah'],
@@ -129,6 +130,12 @@ class AppRoutes {
             totalVerses: args?['totalVerses'] ?? 0,
             totalCorrectedFaults: args?['totalCorrectedFaults'] ?? 0,
             faultsDetail: args?['faultsDetail'] ?? <String, int>{},
+            tashkeelFutures: args?['tashkeelFutures']
+                    as List<Future<Map<String, dynamic>?>>? ??
+                const [],
+            tashkeelAyahLabels:
+                args?['tashkeelAyahLabels'] as List<Map<String, dynamic>>? ??
+                    const [],
           ),
           settings,
         );
