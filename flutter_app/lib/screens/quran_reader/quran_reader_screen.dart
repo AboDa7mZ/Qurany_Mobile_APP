@@ -6,6 +6,7 @@ import '../../config/routes.dart';
 import '../../models/verse.dart';
 import '../../models/recitation_session.dart';
 import '../../services/quran_service.dart';
+import '../../services/al_bazzi_service.dart';
 import '../../services/bookmark_service.dart';
 import '../../widgets/app_icons.dart';
 import '../../widgets/tafsir_sheet.dart';
@@ -14,12 +15,16 @@ import '../../widgets/bookmark_note_dialog.dart';
 class QuranReaderScreen extends StatefulWidget {
   final int surahNumber;
   final String surahName;
+  final String qiraat;
 
   const QuranReaderScreen({
     super.key,
     required this.surahNumber,
     required this.surahName,
+    this.qiraat = 'حفص',
   });
+
+  bool get isBazzi => qiraat == 'البزي';
 
   @override
   State<QuranReaderScreen> createState() => _QuranReaderScreenState();
@@ -44,17 +49,32 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
       _error = null;
     });
 
-    final quranService = context.read<QuranService>();
-    final verses = await quranService.getSurahVerses(widget.surahNumber);
+    try {
+      List<Verse> verses;
+      if (widget.isBazzi) {
+        final bazziService = AlBazziService();
+        verses = await bazziService.getBaqaraVerses();
+      } else {
+        final quranService = context.read<QuranService>();
+        verses = await quranService.getSurahVerses(widget.surahNumber);
+      }
 
-    if (mounted) {
-      setState(() {
-        _verses = verses;
-        _isLoading = false;
-        if (verses.isEmpty) {
-          _error = 'فشل تحميل السورة. تأكد من اتصالك بالإنترنت.';
-        }
-      });
+      if (mounted) {
+        setState(() {
+          _verses = verses;
+          _isLoading = false;
+          if (verses.isEmpty) {
+            _error = 'فشل تحميل السورة.';
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _error = 'فشل تحميل السورة. $e';
+        });
+      }
     }
   }
 
@@ -71,18 +91,24 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
     return Scaffold(
       backgroundColor: QuranyTheme.background,
       appBar: AppBar(
-        title: Text('سورة ${widget.surahName}'),
+        title: Text(
+          widget.isBazzi
+              ? 'سورة ${widget.surahName} - البزي'
+              : 'سورة ${widget.surahName}',
+        ),
         leading: AppIcons.backButton(context: context),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.menu_book_outlined),
-            tooltip: 'عرض المصحف',
-            onPressed: () {
-              Navigator.pushNamed(context, AppRoutes.mushafReader, arguments: {
-                'surahNumber': widget.surahNumber,
-              });
-            },
-          ),
+          // Mushaf view — only for Hafs (no mushaf layout data for Al-Bazzi)
+          if (!widget.isBazzi)
+            IconButton(
+              icon: const Icon(Icons.menu_book_outlined),
+              tooltip: 'عرض المصحف',
+              onPressed: () {
+                Navigator.pushNamed(context, AppRoutes.mushafReader, arguments: {
+                  'surahNumber': widget.surahNumber,
+                });
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.text_decrease),
             onPressed: () {
@@ -95,17 +121,19 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
               if (_fontSize < 48) setState(() => _fontSize += 2);
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.mic_rounded),
-            tooltip: 'تلاوة هذه السورة',
-            onPressed: () {
-              Navigator.pushNamed(context, AppRoutes.recitation, arguments: {
-                'surahNumber': widget.surahNumber,
-                'surahName': widget.surahName,
-                'mode': 'free',
-              });
-            },
-          ),
+          // Recitation mic — only for Hafs (backend & audio use Hafs numbering)
+          if (!widget.isBazzi)
+            IconButton(
+              icon: const Icon(Icons.mic_rounded),
+              tooltip: 'تلاوة هذه السورة',
+              onPressed: () {
+                Navigator.pushNamed(context, AppRoutes.recitation, arguments: {
+                  'surahNumber': widget.surahNumber,
+                  'surahName': widget.surahName,
+                  'mode': 'free',
+                });
+              },
+            ),
         ],
       ),
       body: _isLoading

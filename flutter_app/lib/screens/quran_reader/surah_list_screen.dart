@@ -41,10 +41,16 @@ class _SurahListScreenState extends State<SurahListScreen> {
   }
 
   List<int> get _filteredIndices {
+    final qiraatService = context.watch<QiraatService>();
+    final isBazzi = qiraatService.selectedQiraat == 'البزي';
+
+    // Al-Bazzi: only Surah Al-Baqara (index 1) is available
+    final allIndices = isBazzi ? [1] : List.generate(114, (i) => i);
+
     if (_searchQuery.isEmpty) {
-      return List.generate(114, (i) => i);
+      return allIndices;
     }
-    return List.generate(114, (i) => i).where((i) {
+    return allIndices.where((i) {
       return AppConstants.surahNames[i].contains(_searchQuery) ||
           '${i + 1}'.contains(_searchQuery);
     }).toList();
@@ -184,11 +190,24 @@ class _SurahListScreenState extends State<SurahListScreen> {
                           );
                         }
                       } else {
-                        Navigator.pushNamed(
-                          context,
-                          AppRoutes.mushafReader,
-                          arguments: {'surahNumber': surahNumber},
-                        );
+                        final qiraat = context.read<QiraatService>().selectedQiraat;
+                        if (qiraat == 'البزي') {
+                          Navigator.pushNamed(
+                            context,
+                            AppRoutes.quranReader,
+                            arguments: {
+                              'surahNumber': surahNumber,
+                              'surahName': surahName,
+                              'qiraat': 'البزي',
+                            },
+                          );
+                        } else {
+                          Navigator.pushNamed(
+                            context,
+                            AppRoutes.mushafReader,
+                            arguments: {'surahNumber': surahNumber},
+                          );
+                        }
                       }
                     },
                   ),

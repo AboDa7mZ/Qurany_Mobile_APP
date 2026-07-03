@@ -62,6 +62,7 @@ class AppRoutes {
           QuranReaderScreen(
             surahNumber: args?['surahNumber'] ?? 1,
             surahName: args?['surahName'] ?? 'الفاتحة',
+            qiraat: args?['qiraat'] ?? 'حفص',
           ),
           settings,
         );
