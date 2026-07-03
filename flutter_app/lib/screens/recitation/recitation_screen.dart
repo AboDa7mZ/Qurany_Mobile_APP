@@ -167,9 +167,20 @@ class _RecitationScreenState extends State<RecitationScreen>
     )..repeat();
 
     _husaryPlayer.setReleaseMode(ReleaseMode.stop);
-    _audioService.requestPermission();
-    _initSpeech();
+    _initMicAndSpeech();
     _loadVerses();
+  }
+
+  /// Request the microphone permission and only then initialize speech
+  /// recognition. Sequencing matters: on a fresh install, calling
+  /// _speech.initialize() while the permission dialog is still pending makes
+  /// it fail, and the two concurrent permission requests (permission_handler
+  /// + speech_to_text's own) can race each other. If the user denies here,
+  /// the recording paths re-request and re-init on the next record tap.
+  Future<void> _initMicAndSpeech() async {
+    final granted = await _audioService.requestPermission();
+    if (!granted) return;
+    await _initSpeech();
   }
 
   @override
@@ -588,13 +599,23 @@ class _RecitationScreenState extends State<RecitationScreen>
     }
   }
 
-  void _abortRecordingTurn(String message) {
+  Future<void> _abortRecordingTurn(String message) async {
     _pulseController.stop();
     _pulseController.reset();
     _amplitudeSubscription?.cancel();
     _durationSubscription?.cancel();
     _silenceTimer?.cancel();
     WakelockPlus.disable();
+    // Release the hardware recorder if the parallel WAV capture already
+    // started; otherwise the OS mic stays occupied after an aborted turn.
+    if (_usingHardwareMic) {
+      _usingHardwareMic = false;
+      await _audioService.cancelRecording();
+    }
+    // After "don't ask again", the permission dialog can never reappear --
+    // give the user a working shortcut to the app-settings screen instead
+    // of only telling them about it in the message text.
+    final permanentlyDenied = await _audioService.isPermanentlyDenied();
     if (mounted) {
       setState(() {
         _isRecording = false;
@@ -604,6 +625,13 @@ class _RecitationScreenState extends State<RecitationScreen>
         SnackBar(
           content: Text(message),
           backgroundColor: QuranyTheme.errorRed,
+          action: permanentlyDenied
+              ? SnackBarAction(
+                  label: 'الإعدادات',
+                  textColor: Colors.white,
+                  onPressed: () => _audioService.openSettings(),
+                )
+              : null,
         ),
       );
     }
@@ -705,24 +733,9 @@ class _RecitationScreenState extends State<RecitationScreen>
         if (mounted) setState(() => _recordingSeconds = dur);
       });
     } else {
-      _pulseController.stop();
-      _pulseController.reset();
-      WakelockPlus.disable();
-      setState(() {
-        _isRecording = false;
-        _statusText =
-            'التعرف على الكلام غير متاح على هذا الجهاز. تأكد من إعطاء إذن الميكروفون.';
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'التعرف على الكلام غير متاح. تأكد من إعطاء إذن الميكروفون.',
-            ),
-            backgroundColor: QuranyTheme.errorRed,
-          ),
-        );
-      }
+      await _abortRecordingTurn(
+        'التعرف على الكلام غير متاح على هذا الجهاز. تأكد من إعطاء إذن الميكروفون.',
+      );
     }
   }
 
