@@ -131,35 +131,7 @@ jobs:
           export VERSION_FULL ARTIFACT_NAME ARTIFACT_URL RUN_URL
           export DISCORD_TECH_SQUAD_ROLE_ID="${DISCORD_TECH_SQUAD_ROLE_ID:-}"
 
-          payload=$(python <<'PY'
-import json, os
-
-v = os.environ["VERSION_FULL"]
-artifact = os.environ["ARTIFACT_NAME"]
-artifact_url = os.environ["ARTIFACT_URL"]
-run_url = os.environ["RUN_URL"]
-role_id = os.environ.get("DISCORD_TECH_SQUAD_ROLE_ID", "").strip()
-
-mention = f"<@&{role_id}>" if role_id else "@Tech Squad"
-
-content = (
-    f"{mention}\n\n"
-    f"**Qurany v{v}** — all tests passed ✅\n\n"
-    f"• Backend tests: passed\n"
-    f"• Flutter tests: passed\n"
-    f"• Tag: `{v}`\n"
-    f"• **Download APK:** {artifact_url}\n"
-    f"  Artifact name: `{artifact}`\n"
-    f"• Workflow run: {run_url}"
-)
-
-payload = {"content": content}
-if role_id:
-    payload["allowed_mentions"] = {"parse": [], "roles": [role_id]}
-
-print(json.dumps(payload))
-PY
-)
+          payload=$(python .github/scripts/notify_discord.py)
 
           http_code=$(curl -sS -o /tmp/discord-response.json -w "%{http_code}" \
             -X POST "$DISCORD_WEBHOOK_URL" \
