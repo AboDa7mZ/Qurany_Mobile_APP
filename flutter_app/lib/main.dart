@@ -14,6 +14,8 @@ import 'config/theme.dart';
 
 import 'config/routes.dart';
 
+import 'config/constants.dart';
+
 import 'services/auth_service.dart';
 
 import 'services/quran_service.dart';
@@ -57,6 +59,11 @@ void main() async {
 
 
   final prefs = await SharedPreferences.getInstance();
+
+  // Analysis-server address saved from Settings (LAN IPs change per network,
+  // so this must be editable at runtime, not just at build time).
+  AppConstants.recitationApiUserOverride =
+      prefs.getString(AppConstants.recitationApiPrefsKey);
 
 
 

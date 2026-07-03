@@ -23,12 +23,16 @@ class RecitationApiException implements Exception {
 /// already builds on-device. When the backend is unavailable, callers should
 /// fall back to the on-device comparison path.
 class RecitationApiService {
-  final String baseUrl;
+  final String? _baseUrlOverride;
   final http.Client _client;
 
   RecitationApiService({String? baseUrl, http.Client? client})
-      : baseUrl = baseUrl ?? AppConstants.recitationApiBaseUrl,
+      : _baseUrlOverride = baseUrl,
         _client = client ?? http.Client();
+
+  /// Resolved per call (not frozen at construction) so an address saved in
+  /// Settings takes effect immediately without recreating the provider.
+  String get baseUrl => _baseUrlOverride ?? AppConstants.recitationApiBaseUrl;
 
   /// Whether the surah is handled by the backend (MVP: Surah Al-Naba only).
   bool supportsSurah(int surahNumber) =>

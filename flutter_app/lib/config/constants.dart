@@ -23,16 +23,30 @@ class AppConstants {
   static const int aladhanCalculationMethod = 5;
 
   // Recitation analysis backend (FastAPI + faster-whisper).
-  // Override at build time: --dart-define=QURANY_API_BASE=http://<host>:8000
-  //   - Android emulator -> http://10.0.2.2:8000 (maps to host localhost)
-  //   - iOS simulator / web / desktop -> http://localhost:8000
-  //   - Real device -> http://<your-PC-LAN-IP>:8000
-  static String get recitationApiBaseUrl {
+  // Resolution order:
+  //   1. Address saved by the user in Settings (works on real devices where
+  //      the backend runs on a LAN laptop whose IP changes per network)
+  //   2. Build-time override: --dart-define=QURANY_API_BASE=http://<host>:8000
+  //   3. Platform default (10.0.2.2 only resolves inside the Android
+  //      emulator; on a physical phone it points at nothing)
+  static const String recitationApiPrefsKey = 'recitation_api_base_url';
+
+  /// Set at startup (main.dart) from SharedPreferences and whenever the user
+  /// saves a new address in Settings.
+  static String? recitationApiUserOverride;
+
+  static String get recitationApiDefaultUrl {
     const override = String.fromEnvironment('QURANY_API_BASE');
     if (override.isNotEmpty) return override;
     if (kIsWeb) return 'http://localhost:8000';
     if (!Platform.isAndroid) return 'http://localhost:8000';
     return 'http://10.0.2.2:8000';
+  }
+
+  static String get recitationApiBaseUrl {
+    final user = recitationApiUserOverride?.trim();
+    if (user != null && user.isNotEmpty) return user;
+    return recitationApiDefaultUrl;
   }
 
   // Surahs supported by the recitation backend (MVP scope).

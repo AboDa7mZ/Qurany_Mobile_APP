@@ -570,7 +570,29 @@ class _RecitationScreenState extends State<RecitationScreen>
     _usingHardwareMic = false;
     _usingSpeechRecognition = false;
 
-    // Hardware recorder first — this is what registers mic use on Android.
+    // Android grants the mic to ONE consumer: running the hardware recorder
+    // and SpeechRecognizer together means the second one hears silence (the
+    // old "best-effort" dual start left live matching dead on most devices).
+    // So each turn has exactly one deterministic mic owner:
+    //   - STT turn (preferred): live word highlighting; the transcript is
+    //     sent to /analyze-text when the turn is validated.
+    //   - Recorder turn (fallback when the device has no working speech
+    //     engine): WAV captured and sent to /analyze on stop.
+    if (_speechAvailable) {
+      _startSpeechListening();
+      _durationSubscription?.cancel();
+      _durationSubscription = Stream.periodic(
+        const Duration(seconds: 1),
+        (i) => i + 1,
+      ).listen((dur) {
+        if (mounted) setState(() => _recordingSeconds = dur);
+      });
+      if (mounted) {
+        setState(() => _statusText = 'الميكروفون يعمل — اقرأ الآن');
+      }
+      return;
+    }
+
     final started = await _audioService.startRecording();
     if (!started) {
       _abortRecordingTurn(
@@ -587,15 +609,6 @@ class _RecitationScreenState extends State<RecitationScreen>
     });
     if (mounted) {
       setState(() => _statusText = 'الميكروفون يعمل — اقرأ الآن');
-    }
-
-    // Best-effort live STT for word highlighting (works on some devices alongside
-    // the recorder; on exclusive-mic Android it may stay silent — server validates on stop).
-    if (_speechAvailable) {
-      await Future.delayed(const Duration(milliseconds: 250));
-      if (mounted && _isRecording && _usingHardwareMic) {
-        _startSpeechListening();
-      }
     }
   }
 
@@ -1066,11 +1079,17 @@ class _RecitationScreenState extends State<RecitationScreen>
       _voiceDetectedDuringTurn = true;
     }
 
-    // Stop the parallel WAV capture (if it was running).
-    try {
-      final stopped = await _audioService.stopRecording();
-      if (stopped != null) _recordedAudioPath = stopped;
-    } catch (_) {}
+    // Stop the WAV capture -- only when this turn actually owned the
+    // hardware recorder. AudioService.stopRecording() returns the LAST
+    // recorded file path even when idle, so calling it on an STT-only turn
+    // would resurrect a stale (already deleted) path and misroute the
+    // backend call from /analyze-text to a dead audio upload.
+    if (_usingHardwareMic) {
+      try {
+        final stopped = await _audioService.stopRecording();
+        if (stopped != null) _recordedAudioPath = stopped;
+      } catch (_) {}
+    }
 
     if (widget.mode == 'tasmee3') {
       await _finishTasmee3Turn();
@@ -1268,6 +1287,16 @@ class _RecitationScreenState extends State<RecitationScreen>
         }
       } catch (e) {
         debugPrint('Tahfeez server analysis failed: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'تعذر الاتصال بخادم التحليل. تحقق من عنوان الخادم في الإعدادات.',
+              ),
+              backgroundColor: QuranyTheme.errorRed,
+            ),
+          );
+        }
       } finally {
         try {
           await File(audioPath).delete();

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../config/theme.dart';
 import '../../config/constants.dart';
 import '../../services/auth_service.dart';
+import '../../services/recitation_api_service.dart';
 import '../../widgets/app_icons.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -107,6 +109,12 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 20),
 
+          // Analysis server (LAN IPs change per network, so the address must
+          // be editable on the device rather than baked into the APK).
+          const _SectionHeader(title: 'خادم التحليل'),
+          const _ServerAddressCard(),
+          const SizedBox(height: 20),
+
           // Supervised by
           const _SectionHeader(title: 'الفريق'),
           Card(
@@ -137,6 +145,126 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 32),
         ],
+      ),
+    );
+  }
+}
+
+class _ServerAddressCard extends StatefulWidget {
+  const _ServerAddressCard();
+
+  @override
+  State<_ServerAddressCard> createState() => _ServerAddressCardState();
+}
+
+class _ServerAddressCardState extends State<_ServerAddressCard> {
+  late final TextEditingController _controller;
+  bool _testing = false;
+  bool? _healthy;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(
+      text: AppConstants.recitationApiUserOverride ?? '',
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final value = _controller.text.trim();
+    final prefs = await SharedPreferences.getInstance();
+    if (value.isEmpty) {
+      await prefs.remove(AppConstants.recitationApiPrefsKey);
+      AppConstants.recitationApiUserOverride = null;
+    } else {
+      await prefs.setString(AppConstants.recitationApiPrefsKey, value);
+      AppConstants.recitationApiUserOverride = value;
+    }
+    setState(() => _healthy = null);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(value.isEmpty
+              ? 'تمت إعادة العنوان الافتراضي'
+              : 'تم حفظ عنوان الخادم'),
+          backgroundColor: QuranyTheme.primaryGreen,
+        ),
+      );
+    }
+  }
+
+  Future<void> _testConnection() async {
+    final api = context.read<RecitationApiService>();
+    await _save();
+    setState(() => _testing = true);
+    final ok = await api.isHealthy(timeout: const Duration(seconds: 5));
+    if (mounted) {
+      setState(() {
+        _testing = false;
+        _healthy = ok;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _controller,
+              keyboardType: TextInputType.url,
+              textDirection: TextDirection.ltr,
+              decoration: InputDecoration(
+                labelText: 'عنوان الخادم',
+                hintText: AppConstants.recitationApiDefaultUrl,
+                hintTextDirection: TextDirection.ltr,
+                helperText:
+                    'مثال: http://192.168.1.5:8000 — اتركه فارغًا للافتراضي',
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _testing ? null : _save,
+                  icon: const Icon(Icons.save_outlined),
+                  label: const Text('حفظ'),
+                ),
+                const SizedBox(width: 12),
+                OutlinedButton.icon(
+                  onPressed: _testing ? null : _testConnection,
+                  icon: _testing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.wifi_tethering),
+                  label: const Text('اختبار الاتصال'),
+                ),
+                const SizedBox(width: 12),
+                if (_healthy != null)
+                  Icon(
+                    _healthy! ? Icons.check_circle : Icons.error,
+                    color: _healthy!
+                        ? QuranyTheme.primaryGreen
+                        : QuranyTheme.errorRed,
+                  ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

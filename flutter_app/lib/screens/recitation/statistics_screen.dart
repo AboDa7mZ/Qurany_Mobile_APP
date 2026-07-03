@@ -44,6 +44,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   double? _tashkeelScore;
   int _tashkeelMistakeCount = 0;
   int _tashkeelCheckedCount = 0;
+  int _tashkeelFailedCount = 0;
   List<_TashkeelMistake> _tashkeelMistakes = const [];
 
   int get totalVerses => widget.totalVerses;
@@ -66,11 +67,17 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
 
     int mistakes = 0;
     int checked = 0;
+    int failed = 0;
     final collected = <_TashkeelMistake>[];
 
     for (int i = 0; i < results.length; i++) {
       final result = results[i];
-      if (result == null) continue;
+      if (result == null) {
+        // Analysis failed (backend unreachable or errored) -- surfaced in
+        // the UI rather than silently shrinking the checked-ayah count.
+        failed++;
+        continue;
+      }
 
       final label =
           i < widget.tashkeelAyahLabels.length ? widget.tashkeelAyahLabels[i] : null;
@@ -99,6 +106,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       _tashkeelAvailable = checked > 0;
       _tashkeelMistakeCount = mistakes;
       _tashkeelCheckedCount = checked;
+      _tashkeelFailedCount = failed;
       _tashkeelScore = checked > 0
           ? ((checked - mistakes) / checked * 100).clamp(0.0, 100.0)
           : null;
@@ -271,6 +279,24 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               if (_tashkeelLoading || _tashkeelAvailable) ...[
                 const SizedBox(height: 32),
                 _buildTashkeelSection(),
+              ],
+              if (!_tashkeelLoading && _tashkeelFailedCount > 0) ...[
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.cloud_off,
+                        size: 18, color: QuranyTheme.errorRed),
+                    const SizedBox(width: 6),
+                    Text(
+                      'تعذر تحليل $_tashkeelFailedCount ${_tashkeelFailedCount == 1 ? 'آية' : 'آيات'} على الخادم — تحقق من عنوان الخادم في الإعدادات',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: QuranyTheme.errorRed,
+                      ),
+                    ),
+                  ],
+                ),
               ],
 
               const SizedBox(height: 48),
