@@ -65,7 +65,14 @@ class AppConstants {
     return recitationApiDefaultUrl;
   }
 
-  // Surahs supported by the recitation backend (MVP scope).
+  // Surahs with a dedicated fine-tuned ASR checkpoint (Al-Baqarah + Al-Naba).
+  static const List<int> serverFineTunedSurahs = [78, 2];
+
+  /// Any standard mushaf surah the backend can analyze (Hafs reference via API).
+  static bool isBackendSurahSupported(int surahNumber) =>
+      surahNumber >= 1 && surahNumber <= 114;
+
+  /// @deprecated Use [isBackendSurahSupported] — kept for older call sites.
   static const List<int> serverSupportedSurahs = [78, 2];
 
   // Audio settings

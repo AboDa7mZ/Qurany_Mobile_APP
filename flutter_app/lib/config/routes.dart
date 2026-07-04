@@ -6,6 +6,7 @@ import '../screens/home/home_screen.dart';
 import '../screens/quran_reader/surah_list_screen.dart';
 import '../screens/quran_reader/quran_reader_screen.dart';
 import '../screens/mushaf_reader/mushaf_reader_screen.dart';
+import '../screens/mushaf_reader/bazzi_mushaf_reader_screen.dart';
 import '../screens/recitation/recitation_screen.dart';
 import '../screens/recitation/recitation_result_screen.dart';
 import '../screens/schedule/schedule_screen.dart';
@@ -20,6 +21,7 @@ import '../screens/khatmah/create_khatmah_screen.dart';
 import '../screens/notifications/notifications_screen.dart';
 import '../screens/recitation/statistics_screen.dart';
 import '../screens/learning_plan/plan_stats_screen.dart';
+import '../screens/evaluation/evaluation_result_screen.dart';
 
 class AppRoutes {
   static const String splash = '/';
@@ -29,6 +31,7 @@ class AppRoutes {
   static const String surahList = '/surah-list';
   static const String quranReader = '/quran-reader';
   static const String mushafReader = '/mushaf-reader';
+  static const String bazziMushafReader = '/bazzi-mushaf-reader';
   static const String recitation = '/recitation';
   static const String recitationResult = '/recitation-result';
   static const String schedule = '/schedule';
@@ -43,6 +46,7 @@ class AppRoutes {
   static const String notifications = '/notifications';
   static const String statistics = '/statistics';
   static const String planStats = '/plan-stats';
+  static const String evaluationResult = '/evaluation-result';
 
   static Route<dynamic> generateRoute(RouteSettings settings) {
     switch (settings.name) {
@@ -76,6 +80,8 @@ class AppRoutes {
           ),
           settings,
         );
+      case bazziMushafReader:
+        return _slideRoute(const BazziMushafReaderScreen(), settings);
       case recitation:
         final args = settings.arguments as Map<String, dynamic>?;
         return _slideRoute(
@@ -125,6 +131,7 @@ class AppRoutes {
         return _slideRoute(const NotificationsScreen(), settings);
       case statistics:
         final args = settings.arguments as Map<String, dynamic>?;
+        final rawResults = args?['analysisResults'] as List?;
         return _slideRoute(
           StatisticsScreen(
             totalVerses: args?['totalVerses'] ?? 0,
@@ -136,6 +143,9 @@ class AppRoutes {
             tashkeelAyahLabels:
                 args?['tashkeelAyahLabels'] as List<Map<String, dynamic>>? ??
                     const [],
+            analysisResults: rawResults
+                ?.map((e) => Map<String, dynamic>.from(e as Map))
+                .toList(),
           ),
           settings,
         );
@@ -144,6 +154,22 @@ class AppRoutes {
         return _slideRoute(
           PlanStatsScreen(
             planId: args?['planId'] as String?,
+          ),
+          settings,
+        );
+      case evaluationResult:
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _slideRoute(
+          EvaluationResultScreen(
+            sessionJson: Map<String, dynamic>.from(
+              args?['session'] as Map? ?? {},
+            ),
+            rawResult: Map<String, dynamic>.from(
+              args?['rawResult'] as Map? ?? {},
+            ),
+            riwayahLabel: args?['riwayahLabel']?.toString() ?? 'حفص عن عاصم',
+            startAyah: (args?['startAyah'] as num?)?.toInt(),
+            endAyah: (args?['endAyah'] as num?)?.toInt(),
           ),
           settings,
         );

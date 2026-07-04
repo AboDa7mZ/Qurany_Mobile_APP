@@ -17,6 +17,7 @@ import '../../widgets/app_icons.dart';
 import '../../widgets/app_logo.dart';
 import '../../widgets/prayer_times_banner.dart';
 import '../quran_reader/surah_list_screen.dart';
+import '../evaluation/evaluation_tab_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -26,7 +27,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _selectedIndex = 0;
+  int _selectedIndex = 2;
 
   @override
   Widget build(BuildContext context) {
@@ -35,17 +36,19 @@ class _HomeScreenState extends State<HomeScreen> {
       body: IndexedStack(
         index: _selectedIndex,
         children: [
+          const _MoreTab(),
+          const _MushafMuallimTab(),
           _DashboardTab(),
           const SurahListScreen(embeddedInTab: true),
-          const _MushafMuallimTab(),
-          const _MoreTab(),
+          const EvaluationTabScreen(),
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
         currentIndex: _selectedIndex,
         onTap: (i) {
           setState(() => _selectedIndex = i);
-          if (i == 0) {
+          if (i == 2) {
             context
                 .read<QuranService>()
                 .ensureVerseOfTheDayWithTranslation();
@@ -53,6 +56,14 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         },
         items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.more_horiz_rounded),
+            label: 'المزيد',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.mic_rounded),
+            label: 'المعلم',
+          ),
           BottomNavigationBarItem(
             icon: Icon(Icons.home_rounded),
             label: 'الرئيسية',
@@ -62,12 +73,8 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'القرآن',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.mic_rounded),
-            label: 'المعلم',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.more_horiz_rounded),
-            label: 'المزيد',
+            icon: Icon(Icons.fact_check_rounded),
+            label: 'تقييم',
           ),
         ],
       ),
@@ -172,7 +179,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                                   quran.verseOfTheDay!.surahNumber,
                                 )
                               : null,
-                          onRetry: () => quran.loadRandomVerse(),
+                          onRetry: () => quran.loadVerseOfTheDay(),
                         ),
                       ),
                     ],

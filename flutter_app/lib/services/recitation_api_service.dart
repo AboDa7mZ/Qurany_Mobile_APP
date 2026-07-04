@@ -39,7 +39,7 @@ class RecitationApiService {
       AppConstants.serverSupportedSurahs.contains(surahNumber);
 
   /// Quick health probe used to decide between server and on-device analysis.
-  Future<bool> isHealthy({Duration timeout = const Duration(seconds: 3)}) async {
+  Future<bool> isHealthy({Duration timeout = const Duration(seconds: 8)}) async {
     try {
       final resp = await _client
           .get(AppConstants.apiUri(baseUrl, '/health'))
@@ -63,7 +63,9 @@ class RecitationApiService {
     String riwayah = 'hafs',
     int? startAyah,
     int? endAyah,
-    Duration timeout = const Duration(seconds: 90),
+    bool autoDetectAyahRange = true,
+    bool skipBasmallah = false,
+    Duration timeout = const Duration(seconds: 120),
   }) async {
     final file = File(audioFilePath);
     if (!await file.exists()) {
@@ -82,6 +84,16 @@ class RecitationApiService {
     }
     if (endAyah != null) {
       request.fields['end_ayah'] = endAyah.toString();
+    }
+    if (startAyah != null && endAyah != null) {
+      request.fields['auto_detect_ayah_range'] = 'false';
+    } else if (autoDetectAyahRange) {
+      request.fields['auto_detect_ayah_range'] = 'true';
+    } else {
+      request.fields['auto_detect_ayah_range'] = 'false';
+    }
+    if (skipBasmallah) {
+      request.fields['skip_basmallah'] = 'true';
     }
 
     try {
@@ -111,6 +123,7 @@ class RecitationApiService {
     String riwayah = 'hafs',
     int? startAyah,
     int? endAyah,
+    bool skipBasmallah = false,
     Duration timeout = const Duration(seconds: 30),
   }) async {
     try {
@@ -121,6 +134,7 @@ class RecitationApiService {
       };
       if (startAyah != null) body['startAyah'] = startAyah;
       if (endAyah != null) body['endAyah'] = endAyah;
+      if (skipBasmallah) body['skipBasmallah'] = true;
 
       final resp = await _client
           .post(

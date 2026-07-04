@@ -31,13 +31,10 @@ _ALLOWED_AUDIO_SUFFIXES = {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".we
 
 
 def _validate_surah(surah_number: int) -> None:
-    if surah_number not in settings.supported_surahs:
+    if not (1 <= surah_number <= 114):
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Surah {surah_number} is not supported in this MVP. "
-                f"Supported surahs: {settings.supported_surahs}."
-            ),
+            detail=f"Surah {surah_number} is out of range. Valid surahs: 1–114.",
         )
 
 
@@ -129,6 +126,7 @@ async def analyze(
     start_ayah: int | None = Form(None),
     end_ayah: int | None = Form(None),
     auto_detect_ayah_range: bool | None = Form(None),
+    skip_basmallah: bool | None = Form(None),
     riwayah: str = Form("hafs"),
 ) -> dict:
     _validate_surah(surah_number)
@@ -143,6 +141,7 @@ async def analyze(
             end_ayah=end_ayah,
             auto_detect_ayah_range=auto_detect_ayah_range,
             riwayah=riwayah,
+            skip_basmallah=bool(skip_basmallah),
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -167,6 +166,7 @@ async def analyze_transcript(payload: schemas.AnalyzeTextRequest) -> dict:
         end_ayah=payload.end_ayah,
         auto_detect_ayah_range=payload.auto_detect_ayah_range,
         riwayah=riwayah,
+        skip_basmallah=bool(payload.skip_basmallah),
     )
 
 

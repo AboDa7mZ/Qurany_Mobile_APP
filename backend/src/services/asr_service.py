@@ -320,6 +320,8 @@ class _TransformersBackend:
         assert self._model is not None and self._processor is not None
         speech, _ = librosa.load(audio_path, sr=16000, mono=True)
         duration = len(speech) / 16000.0
+        # Single-ayah Muallim clips are short; skip slow decode options.
+        short_clip = duration <= 25.0
 
         chunk_len = 16000 * 30  # Whisper decodes ~30s per forward pass
         overlap_samples = int(settings.whisper_chunk_overlap_seconds * 16000)
@@ -330,7 +332,7 @@ class _TransformersBackend:
         offset_s = 0.0
         max_target = int(getattr(self._model.config, "max_target_positions", 448))
         prompt_ids = None
-        if settings.whisper_condition_on_previous_text:
+        if settings.whisper_condition_on_previous_text and not short_clip:
             try:
                 prompt_ids = self._processor.get_prompt_ids(
                     "بسم الله الرحمن الرحيم",
@@ -352,7 +354,14 @@ class _TransformersBackend:
             ).input_features.to(self._device)
 
             prompt_len = estimate_whisper_decoder_input_length(self._processor, prompt_ids)
-            max_new = compute_whisper_max_new_tokens(max_target, prompt_len)
+            if short_clip:
+                # ~2 tokens per second of speech is plenty for a single ayah.
+                max_new = min(
+                    compute_whisper_max_new_tokens(max_target, prompt_len),
+                    max(48, int(duration * 2.5) + 16),
+                )
+            else:
+                max_new = compute_whisper_max_new_tokens(max_target, prompt_len)
             if prompt_ids is not None and max_new < 32:
                 prompt_ids = None
                 prompt_len = estimate_whisper_decoder_input_length(self._processor, None)
@@ -361,7 +370,7 @@ class _TransformersBackend:
             gen_kwargs: dict = {
                 "max_new_tokens": max_new,
                 "num_beams": self._num_beams,
-                "return_timestamps": True,
+                "return_timestamps": not short_clip,
             }
             if prompt_ids is not None:
                 gen_kwargs["prompt_ids"] = prompt_ids
@@ -376,7 +385,7 @@ class _TransformersBackend:
             )
             offset_s += (step / 16000.0)
 
-            if settings.whisper_condition_on_previous_text and text:
+            if settings.whisper_condition_on_previous_text and text and not short_clip:
                 try:
                     # Last ~80 chars only — enough context without blowing the token budget.
                     prompt_ids = self._processor.get_prompt_ids(

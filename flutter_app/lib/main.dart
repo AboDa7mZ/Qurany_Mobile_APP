@@ -97,7 +97,7 @@ class QuranyApp extends StatelessWidget {
 
         ChangeNotifierProvider(create: (_) => AuthService(prefs)),
 
-        ChangeNotifierProvider(create: (_) => QuranService()),
+        ChangeNotifierProvider(create: (_) => QuranService(prefs)),
 
         ChangeNotifierProvider(create: (_) => TafsirService()),
 

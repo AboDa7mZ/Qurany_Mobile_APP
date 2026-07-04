@@ -123,3 +123,37 @@ def is_similar(a: str, b: str, threshold: float = 0.6) -> bool:
     if _is_final_letter_variant(a, b):
         return True
     return word_similarity(a, b) > threshold
+
+
+# Normalized tokens for بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ (after normalize_arabic).
+_BASMALLAH_TOKENS = ("بسم", "الله", "الرحمن", "الرحيم")
+
+
+def strip_leading_basmallah(text: str) -> str:
+    """Remove an optional leading Basmallah prefix from [text].
+
+    Used by المصحف المعلم so reciting (or skipping) the opening Basmallah
+    does not affect scoring. Partial prefixes (e.g. only بسم الله) are also
+    stripped when they match from the start.
+    """
+    if not text or not text.strip():
+        return text
+
+    original_words = [w for w in text.split() if w.strip()]
+    if not original_words:
+        return text
+
+    norm_words = [normalize_arabic(w) for w in original_words]
+    skip = 0
+    for expected in _BASMALLAH_TOKENS:
+        if skip >= len(norm_words):
+            break
+        token = norm_words[skip]
+        if token == expected or is_similar(token, expected):
+            skip += 1
+        else:
+            break
+
+    if skip == 0:
+        return text
+    return " ".join(original_words[skip:]).strip()

@@ -239,14 +239,16 @@ class _ServerAddressCardState extends State<_ServerAddressCard> {
               ),
             ),
             const SizedBox(height: 12),
-            Row(
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 ElevatedButton.icon(
                   onPressed: _testing ? null : _save,
                   icon: const Icon(Icons.save_outlined),
                   label: const Text('حفظ'),
                 ),
-                const SizedBox(width: 12),
                 OutlinedButton.icon(
                   onPressed: _testing ? null : _testConnection,
                   icon: _testing
@@ -258,7 +260,6 @@ class _ServerAddressCardState extends State<_ServerAddressCard> {
                       : const Icon(Icons.wifi_tethering),
                   label: const Text('اختبار الاتصال'),
                 ),
-                const SizedBox(width: 12),
                 if (_healthy != null)
                   Icon(
                     _healthy! ? Icons.check_circle : Icons.error,

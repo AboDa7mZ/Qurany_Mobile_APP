@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../config/routes.dart';
 import '../../config/constants.dart';
-import '../../services/qiraat_service.dart';
 import '../../widgets/app_icons.dart';
 
 class SurahListScreen extends StatefulWidget {
@@ -41,15 +39,8 @@ class _SurahListScreenState extends State<SurahListScreen> {
   }
 
   List<int> get _filteredIndices {
-    final qiraatService = context.watch<QiraatService>();
-    final isBazzi = qiraatService.selectedQiraat == 'البزي';
-
-    // Al-Bazzi: only Surah Al-Baqara (index 1) is available
-    final allIndices = isBazzi ? [1] : List.generate(114, (i) => i);
-
-    if (_searchQuery.isEmpty) {
-      return allIndices;
-    }
+    final allIndices = List.generate(114, (i) => i);
+    if (_searchQuery.isEmpty) return allIndices;
     return allIndices.where((i) {
       return AppConstants.surahNames[i].contains(_searchQuery) ||
           '${i + 1}'.contains(_searchQuery);
@@ -66,34 +57,6 @@ class _SurahListScreenState extends State<SurahListScreen> {
         leading: widget.embeddedInTab
             ? null
             : AppIcons.backButton(context: context),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Consumer<QiraatService>(
-                builder: (context, qiraatService, child) {
-                  return DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: qiraatService.selectedQiraat,
-                      icon: const Icon(Icons.arrow_drop_down, color: QuranyTheme.primaryGreen),
-                      style: const TextStyle(color: QuranyTheme.primaryGreen, fontWeight: FontWeight.bold, fontFamily: 'MeQuran'),
-                      onChanged: (String? newValue) {
-                        if (newValue != null) {
-                          qiraatService.setQiraat(newValue);
-                        }
-                      },
-                      items: <String>['حفص','البزي']
-                          .map<DropdownMenuItem<String>>((String value) {
-                        return DropdownMenuItem<String>(
-                          value: value,
-                          child: Text(value),
-                        );
-                      }).toList(),
-                    ),
-                  );
-                },
-              ),
-            ),
-        ],
       ),
       body: Column(
         children: [
@@ -175,7 +138,6 @@ class _SurahListScreenState extends State<SurahListScreen> {
                           ),
                     onTap: () {
                       if (_selectForRecitation) {
-                        final qiraat = context.read<QiraatService>().selectedQiraat;
                         if (_recitationMode == 'tahfeez') {
                           _showAyahRangeSelector(context, surahNumber, surahName);
                         } else {
@@ -186,29 +148,16 @@ class _SurahListScreenState extends State<SurahListScreen> {
                               'surahNumber': surahNumber,
                               'surahName': surahName,
                               'mode': _recitationMode,
-                              'qiraat': qiraat,
+                              'qiraat': 'حفص',
                             },
                           );
                         }
                       } else {
-                        final qiraat = context.read<QiraatService>().selectedQiraat;
-                        if (qiraat == 'البزي') {
-                          Navigator.pushNamed(
-                            context,
-                            AppRoutes.quranReader,
-                            arguments: {
-                              'surahNumber': surahNumber,
-                              'surahName': surahName,
-                              'qiraat': 'البزي',
-                            },
-                          );
-                        } else {
-                          Navigator.pushNamed(
-                            context,
-                            AppRoutes.mushafReader,
-                            arguments: {'surahNumber': surahNumber},
-                          );
-                        }
+                        Navigator.pushNamed(
+                          context,
+                          AppRoutes.mushafReader,
+                          arguments: {'surahNumber': surahNumber},
+                        );
                       }
                     },
                   ),
@@ -349,7 +298,6 @@ class _SurahListScreenState extends State<SurahListScreen> {
                     child: ElevatedButton(
                       onPressed: () {
                         Navigator.pop(context); // close bottom sheet
-                        final qiraat = context.read<QiraatService>().selectedQiraat;
                         Navigator.pushNamed(
                           context,
                           AppRoutes.recitation,
@@ -357,7 +305,7 @@ class _SurahListScreenState extends State<SurahListScreen> {
                             'surahNumber': surahNumber,
                             'surahName': surahName,
                             'mode': _recitationMode,
-                            'qiraat': qiraat,
+                            'qiraat': 'حفص',
                             'startAyah': startAyah,
                             'endAyah': endAyah,
                           },

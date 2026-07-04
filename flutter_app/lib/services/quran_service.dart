@@ -1,25 +1,31 @@
 import 'dart:convert';
-import 'dart:io';
-import 'dart:math';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/verse.dart';
 import '../config/constants.dart';
 
 class QuranService extends ChangeNotifier {
   static const Duration _httpTimeout = Duration(seconds: 15);
+  static const String _votdDateKey = 'verse_of_day_date';
+  static const String _votdJsonKey = 'verse_of_day_json';
+  static const int _totalAyahs = 6236;
 
+  final SharedPreferences _prefs;
   final Map<int, List<Verse>> _surahCache = {};
-  final _random = Random();
   bool _isLoading = false;
   String? _error;
 
   Verse? _verseOfTheDay;
+  String? _verseOfTheDayDate;
   bool _verseOfTheDayLoading = false;
   bool _fetchingVerseTranslation = false;
   String? _verseOfTheDayError;
+
+  QuranService(this._prefs) {
+    _restoreVerseOfTheDayFromCache();
+  }
 
   bool get isLoading => _isLoading;
   String? get error => _error;
@@ -78,9 +84,24 @@ class QuranService extends ChangeNotifier {
     });
   }
 
-  /// Pick a random verse from the Quran API (fresh on each app open).
-  Future<void> loadRandomVerse() async {
+  /// Same ayah for the whole calendar day (persisted locally).
+  Future<void> loadVerseOfTheDay() async {
     if (_verseOfTheDayLoading) return;
+
+    final today = _todayKey();
+    if (_verseOfTheDay != null &&
+        _verseOfTheDayDate == today &&
+        _verseOfTheDay!.text.isNotEmpty) {
+      return;
+    }
+
+    final cached = _readCachedVerse(today);
+    if (cached != null) {
+      _verseOfTheDay = cached;
+      _verseOfTheDayDate = today;
+      notifyListeners();
+      return;
+    }
 
     _verseOfTheDayLoading = true;
     _verseOfTheDayError = null;
@@ -88,9 +109,11 @@ class QuranService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      const totalAyahs = 6236;
-      final ayahNumber = _random.nextInt(totalAyahs) + 1;
-      _verseOfTheDay = await _fetchVerseByGlobalNumber(ayahNumber);
+      final ayahNumber = _ayahNumberForDate(DateTime.now());
+      final verse = await _fetchVerseByGlobalNumber(ayahNumber);
+      _verseOfTheDay = verse;
+      _verseOfTheDayDate = today;
+      await _cacheVerse(today, verse);
     } catch (e) {
       _verseOfTheDayError = 'تعذر تحميل آية اليوم. تأكد من اتصالك بالإنترنت.';
     } finally {
@@ -99,22 +122,66 @@ class QuranService extends ChangeNotifier {
     }
   }
 
-  /// Ensures the current verse-of-the-day has an English translation.
-  /// If no verse is loaded yet, loads a random one. If a verse exists but
-  /// was cached before translations were added (e.g. after hot reload), fetches
-  /// English for that same ayah without picking a new random verse.
+  /// @deprecated Use [loadVerseOfTheDay].
+  Future<void> loadRandomVerse() => loadVerseOfTheDay();
+
+  static String _todayKey([DateTime? now]) {
+    final d = now ?? DateTime.now();
+    return '${d.year.toString().padLeft(4, '0')}-'
+        '${d.month.toString().padLeft(2, '0')}-'
+        '${d.day.toString().padLeft(2, '0')}';
+  }
+
+  static int _ayahNumberForDate(DateTime date) {
+    final seed = date.year * 10000 + date.month * 100 + date.day;
+    return (seed % _totalAyahs) + 1;
+  }
+
+  void _restoreVerseOfTheDayFromCache() {
+    final today = _todayKey();
+    final verse = _readCachedVerse(today);
+    if (verse == null) return;
+    _verseOfTheDay = verse;
+    _verseOfTheDayDate = today;
+  }
+
+  Verse? _readCachedVerse(String dateKey) {
+    if (_prefs.getString(_votdDateKey) != dateKey) return null;
+    final raw = _prefs.getString(_votdJsonKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return Verse.fromJson(
+        Map<String, dynamic>.from(json.decode(raw) as Map),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _cacheVerse(String dateKey, Verse verse) async {
+    await _prefs.setString(_votdDateKey, dateKey);
+    await _prefs.setString(_votdJsonKey, json.encode(verse.toJson()));
+  }
+
+  /// Ensures today's verse-of-the-day is loaded with an English translation.
   Future<void> ensureVerseOfTheDayWithTranslation() async {
     if (_verseOfTheDayLoading || _fetchingVerseTranslation) return;
 
+    final today = _todayKey();
+    if (_verseOfTheDayDate != today) {
+      await loadVerseOfTheDay();
+    }
+
     final current = _verseOfTheDay;
     if (current != null &&
+        _verseOfTheDayDate == today &&
         current.englishTranslation != null &&
         current.englishTranslation!.isNotEmpty) {
       return;
     }
 
     if (current == null) {
-      await loadRandomVerse();
+      await loadVerseOfTheDay();
       return;
     }
 
@@ -123,7 +190,7 @@ class QuranService extends ChangeNotifier {
       final globalNumber =
           current.globalNumber > 0 ? current.globalNumber : null;
       if (globalNumber == null) {
-        await loadRandomVerse();
+        await loadVerseOfTheDay();
         return;
       }
 
@@ -139,6 +206,9 @@ class QuranService extends ChangeNotifier {
         textSimple: current.textSimple,
         englishTranslation: english,
       );
+      final today = _todayKey();
+      _verseOfTheDayDate = today;
+      await _cacheVerse(today, _verseOfTheDay!);
       notifyListeners();
     } catch (_) {
       // Keep showing Arabic; user can tap retry for a fresh random ayah.

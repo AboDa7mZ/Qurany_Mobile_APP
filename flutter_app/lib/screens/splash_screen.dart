@@ -39,7 +39,7 @@ class _SplashScreenState extends State<SplashScreen>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        context.read<QuranService>().loadRandomVerse();
+        context.read<QuranService>().loadVerseOfTheDay();
       }
     });
 

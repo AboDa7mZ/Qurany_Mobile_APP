@@ -119,7 +119,7 @@ class _RecitationScreenState extends State<RecitationScreen>
   bool _startingRecording = false;
 
   static const Duration _verseSilenceTimeout = Duration(seconds: 4);
-  static const Duration _husaryToMicHandoffDelay = Duration(milliseconds: 600);
+  static const Duration _husaryToMicHandoffDelay = Duration(milliseconds: 300);
 
   // Animation controllers
   late AnimationController _pulseController;
@@ -135,6 +135,9 @@ class _RecitationScreenState extends State<RecitationScreen>
   // an aggregated tashkeel report on the statistics screen at session end.
   final List<Future<Map<String, dynamic>?>> _tashkeelFutures = [];
   final List<Map<String, dynamic>> _tashkeelAyahLabels = [];
+
+  /// User is reviewing letter mistakes before choosing to replay Husary.
+  bool _awaitingMistakeReview = false;
 
   void _resetSilenceTimer() {
     _silenceTimer?.cancel();
@@ -188,7 +191,9 @@ class _RecitationScreenState extends State<RecitationScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (widget.qiraat == null) {
+    if (widget.mode == 'tahfeez') {
+      _qiraat = 'حفص';
+    } else if (widget.qiraat == null) {
       _qiraat = context.read<QiraatService>().selectedQiraat;
     }
   }
@@ -196,6 +201,16 @@ class _RecitationScreenState extends State<RecitationScreen>
   bool get _isBazzi => _qiraat == 'البزي';
 
   String get _riwayah => QiraatService.riwayahFromQiraat(_qiraat);
+
+  /// المصحف المعلم (tahfeez/tasmee3) always uses the Hafs fine-tuned model.
+  String get _analysisRiwayah => _isVerseMode ? 'hafs' : _riwayah;
+
+  /// Server-backed analysis for Muallim modes (Hafs model, any surah 1–114).
+  bool get _muallimServerEligible {
+    if (!_isVerseMode || _verses.isEmpty) return false;
+    final surah = _verses[_currentVerseIndex].surahNumber;
+    return AppConstants.isBackendSurahSupported(surah);
+  }
 
   /// Initialize speech recognition
   Future<void> _initSpeech() async {
@@ -298,40 +313,49 @@ class _RecitationScreenState extends State<RecitationScreen>
   /// tashkeel (harakat) analysis while Husary recites the next ayah.
   bool get _tahfeezTashkeelEligible {
     if (widget.mode != 'tahfeez' || _verses.isEmpty) return false;
-    final surah = _verses[_currentVerseIndex].surahNumber;
-    if (!AppConstants.serverSupportedSurahs.contains(surah)) return false;
-    if (_isBazzi && surah != 2) return false;
-    return true;
+    return _muallimServerEligible;
   }
 
-  bool get _currentVerseServerEligible {
-    if (_verses.isEmpty) return false;
-    final surah = _verses[_currentVerseIndex].surahNumber;
-    if (!AppConstants.serverSupportedSurahs.contains(surah)) return false;
-    if (_isBazzi && surah != 2) return false;
-    return true;
-  }
+  bool get _currentVerseServerEligible => _muallimServerEligible;
 
   bool get _hasUsableRecording =>
       _recordedAudioPath != null &&
       (_voiceDetectedDuringTurn || _recordingSeconds >= 1);
 
   /// Apply server analyze result to word highlights and live transcript.
-  void _applyCorrectionFromServer(Map<String, dynamic> result) {
+  void _applyCorrectionFromServer(
+    Map<String, dynamic> result, {
+    bool letterOnly = false,
+  }) {
     final transcript = result['transcribed_text']?.toString() ??
         result['transcribedText']?.toString() ??
         '';
     if (transcript.isNotEmpty) {
       _liveTranscription = transcript;
-      _updateWordMatching(transcript);
-      return;
     }
 
     final errors = (result['errors'] as List?)
             ?.whereType<Map<String, dynamic>>()
             .toList() ??
         [];
-    if (errors.isEmpty || _verses.isEmpty) return;
+
+    if (errors.isNotEmpty && _verses.isNotEmpty) {
+      _applyServerErrorsToWordMatches(errors, letterOnly: letterOnly);
+      return;
+    }
+
+    if (transcript.isNotEmpty && !letterOnly) {
+      _updateWordMatching(transcript);
+    }
+  }
+
+  /// Map backend error list onto per-word highlights.
+  /// When [letterOnly] is true (live Muallim feedback), harakat errors are hidden.
+  void _applyServerErrorsToWordMatches(
+    List<Map<String, dynamic>> errors, {
+    bool letterOnly = false,
+  }) {
+    if (_verses.isEmpty) return;
 
     final refText = _verses[_currentVerseIndex].text;
     final originalRefWords =
@@ -352,19 +376,28 @@ class _RecitationScreenState extends State<RecitationScreen>
           word: originalRefWords[i],
           status: _MatchStatus.correct,
         ));
-      } else {
-        final type = err['type']?.toString() ?? 'substitution';
-        final recited = err['recitedWord']?.toString() ??
-            err['recited_word']?.toString() ??
-            '';
+        continue;
+      }
+      final type = err['type']?.toString() ?? 'substitution';
+      if (letterOnly && type == 'harakat') {
         matches.add(_WordMatch(
           word: originalRefWords[i],
-          status: type == 'omission'
-              ? _MatchStatus.error
-              : _MatchStatus.error,
-          recitedAs: recited.isEmpty ? null : recited,
+          status: _MatchStatus.correct,
         ));
+        continue;
       }
+      final recited = err['recitedWord']?.toString() ??
+          err['recited_word']?.toString() ??
+          '';
+      final status = type == 'harakat'
+          ? _MatchStatus.harakat
+          : _MatchStatus.error;
+      matches.add(_WordMatch(
+        word: originalRefWords[i],
+        status: status,
+        recitedAs: recited.isEmpty ? null : recited,
+        errorType: type == 'harakat' ? null : type,
+      ));
     }
     if (mounted) setState(() => _matchedWords = matches);
   }
@@ -469,7 +502,13 @@ class _RecitationScreenState extends State<RecitationScreen>
         if (widget.mode == 'free' && _verses.isNotEmpty) {
           _matchedWords = _buildPendingMatches();
         }
+        if (widget.mode == 'tahfeez' && _verses.isNotEmpty) {
+          _hasStarted = true;
+        }
       });
+      if (widget.mode == 'tahfeez' && _verses.isNotEmpty) {
+        _scheduleHusaryAfterVerseChange();
+      }
     }
   }
 
@@ -580,7 +619,11 @@ class _RecitationScreenState extends State<RecitationScreen>
     //     sent to /analyze-text when the turn is validated.
     //   - Recorder turn (fallback when the device has no working speech
     //     engine): WAV captured and sent to /analyze on stop.
-    if (_speechAvailable) {
+    // Muallim (tahfeez/tasmee3): always record WAV and send to the Hafs ASR
+    // backend. Device STT has no tashkeel and cannot drive harakat feedback.
+    final preferHardwareRecorder = _isVerseMode;
+
+    if (_speechAvailable && !preferHardwareRecorder) {
       _startSpeechListening();
       _durationSubscription?.cancel();
       _durationSubscription = Stream.periodic(
@@ -604,6 +647,9 @@ class _RecitationScreenState extends State<RecitationScreen>
     }
 
     _usingHardwareMic = true;
+    debugPrint(
+      'Muallim: hardware WAV recording (server tashkeel path, riwayah=hafs)',
+    );
     _attachMicAmplitudeListener();
     _durationSubscription?.cancel();
     _durationSubscription = _audioService.durationStream.listen((dur) {
@@ -882,7 +928,7 @@ class _RecitationScreenState extends State<RecitationScreen>
 
   void _scheduleHusaryAfterVerseChange() {
     if (!_hasStarted || widget.mode != 'tahfeez') return;
-    Future.delayed(const Duration(milliseconds: 800), () {
+    Future.delayed(const Duration(milliseconds: 300), () {
       if (mounted && !_isRecording && !_isPlayingHusary && !_isProcessing) {
         _playHusaryVerse();
       }
@@ -960,7 +1006,20 @@ class _RecitationScreenState extends State<RecitationScreen>
     _husaryFinished = false;
     _husaryProgress = 0.0;
     _tasmee3HintCount = 0;
+    _awaitingMistakeReview = false;
     _statusText = 'استمع للحصري ثم اقرأ الآية';
+  }
+
+  void _onMistakeReviewContinue() {
+    if (!_awaitingMistakeReview) return;
+    setState(() {
+      _awaitingMistakeReview = false;
+      _matchedWords = [];
+      _liveTranscription = '';
+      _husaryFinished = false;
+      _statusText = 'استمع للشيخ الحصري...';
+    });
+    _playHusaryVerse();
   }
 
   /// Compare transcribed words with reference to build word matches
@@ -1154,7 +1213,7 @@ class _RecitationScreenState extends State<RecitationScreen>
       final serverResult = await api.tryAnalyzeRecitation(
         audioFilePath: _recordedAudioPath!,
         surahNumber: _selectedSurah,
-        riwayah: _riwayah,
+        riwayah: _analysisRiwayah,
       );
       if (serverResult != null && mounted) {
         _saveAndNavigateToResult(serverResult);
@@ -1183,45 +1242,41 @@ class _RecitationScreenState extends State<RecitationScreen>
     if (!_tahfeezTashkeelEligible) return;
 
     final audioPath = _recordedAudioPath;
-    if (audioPath == null && transcript.trim().isEmpty) return;
+    if (audioPath == null) {
+      // Device STT transcript has no diacritics — harakat check needs WAV.
+      debugPrint(
+        'Tashkeel analysis skipped: no WAV recording (STT lacks harakat)',
+      );
+      return;
+    }
 
     final verse = _verses[_currentVerseIndex];
     final api = context.read<RecitationApiService>();
-    final riwayah = _riwayah;
+    final riwayah = _analysisRiwayah;
 
     _tashkeelAyahLabels.add({
       'surahNumber': verse.surahNumber,
       'verseNumber': verse.verseNumber,
       'text': verse.text,
+      'husaryAudioUrl': verse.husaryAudioUrl,
     });
     _tashkeelFutures.add(() async {
       try {
-        if (audioPath != null) {
-          return await api.analyzeRecitation(
-            audioFilePath: audioPath,
-            surahNumber: verse.surahNumber,
-            riwayah: riwayah,
-            startAyah: verse.verseNumber,
-            endAyah: verse.verseNumber,
-            timeout: const Duration(seconds: 180),
-          );
-        }
-        return await api.analyzeText(
+        return await api.analyzeRecitation(
+          audioFilePath: audioPath,
           surahNumber: verse.surahNumber,
-          transcribedText: transcript,
           riwayah: riwayah,
           startAyah: verse.verseNumber,
           endAyah: verse.verseNumber,
+          timeout: const Duration(seconds: 180),
         );
       } catch (e) {
         debugPrint('Tashkeel analysis failed for ayah ${verse.verseNumber}: $e');
         return null;
       } finally {
-        if (audioPath != null) {
-          try {
-            await File(audioPath).delete();
-          } catch (_) {}
-        }
+        try {
+          await File(audioPath).delete();
+        } catch (_) {}
       }
     }());
     _recordedAudioPath = null;
@@ -1237,6 +1292,7 @@ class _RecitationScreenState extends State<RecitationScreen>
       'surahNumber': verse.surahNumber,
       'verseNumber': verse.verseNumber,
       'text': verse.text,
+      'husaryAudioUrl': verse.husaryAudioUrl,
     });
     _tashkeelFutures.add(Future.value(result));
   }
@@ -1255,7 +1311,7 @@ class _RecitationScreenState extends State<RecitationScreen>
     final audioPath = _recordedAudioPath;
     if (audioPath != null &&
         (_hasUsableRecording || _usingHardwareMic) &&
-        _currentVerseServerEligible) {
+        _muallimServerEligible) {
       if (mounted) {
         setState(() => _statusText = 'جاري التعرف على الصوت...');
       }
@@ -1265,7 +1321,7 @@ class _RecitationScreenState extends State<RecitationScreen>
         final result = await api.analyzeRecitation(
           audioFilePath: audioPath,
           surahNumber: verse.surahNumber,
-          riwayah: _riwayah,
+          riwayah: _analysisRiwayah,
           startAyah: verse.verseNumber,
           endAyah: verse.verseNumber,
           timeout: const Duration(seconds: 180),
@@ -1293,94 +1349,130 @@ class _RecitationScreenState extends State<RecitationScreen>
     }
   }
 
-  Future<void> _validateTahfeez() async {
-    // Live STT produced a transcript during the turn.
-    if (_liveTranscription.isNotEmpty) {
-      await _validateTahfeezWithSimilarity(
-        _computeLocalSimilarity(_liveTranscription),
-        tashkeelTranscript: _liveTranscription,
-      );
-      return;
+  /// Letter-level mistakes (not harakat) from server analysis.
+  bool _hasLetterMistakes(Map<String, dynamic> result) {
+    final errors = result['errors'] as List? ?? const [];
+    for (final e in errors) {
+      if (e is Map) {
+        final type = e['type']?.toString() ?? '';
+        if (type.isNotEmpty && type != 'harakat') return true;
+      }
     }
+    return _matchedWords.any((m) => m.status == _MatchStatus.error);
+  }
 
-    // Hardware recording — analyze WAV on the server for transcript + correction.
+  Future<void> _retryTahfeezAyahWithHusary(String statusText) async {
+    _verseFaults[_currentVerseIndex] =
+        (_verseFaults[_currentVerseIndex] ?? 0) + 1;
+    if (mounted) {
+      setState(() {
+        _isProcessing = false;
+        _statusText = statusText;
+        _matchedWords = [];
+        _liveTranscription = '';
+        _husaryFinished = false;
+      });
+    }
+    await Future.delayed(const Duration(milliseconds: 1200));
+    if (mounted) _playHusaryVerse();
+  }
+
+  Future<void> _validateTahfeez() async {
     Map<String, dynamic>? serverResult;
     final audioPath = _recordedAudioPath;
 
-    if (audioPath != null &&
-        (_hasUsableRecording || _usingHardwareMic) &&
-        _currentVerseServerEligible) {
-      if (mounted) {
-        setState(() => _statusText = 'جاري تحليل التلاوة على الخادم...');
-      }
-      try {
-        final verse = _verses[_currentVerseIndex];
-        final api = context.read<RecitationApiService>();
-        serverResult = await api.analyzeRecitation(
-          audioFilePath: audioPath,
-          surahNumber: verse.surahNumber,
-          riwayah: _riwayah,
-          startAyah: verse.verseNumber,
-          endAyah: verse.verseNumber,
-          timeout: const Duration(seconds: 180),
-        );
-        if (mounted) {
-          _applyCorrectionFromServer(serverResult);
-        }
-      } catch (e) {
-        debugPrint('Tahfeez server analysis failed: $e');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'تعذر الاتصال بخادم التحليل. تحقق من عنوان الخادم في الإعدادات.',
-              ),
-              backgroundColor: QuranyTheme.errorRed,
-            ),
-          );
-        }
-      } finally {
-        try {
-          await File(audioPath).delete();
-        } catch (_) {}
-        _recordedAudioPath = null;
-      }
-    }
-
-    if (_liveTranscription.isEmpty) {
+    if (audioPath == null || !_muallimServerEligible) {
       _verseFaults[_currentVerseIndex] =
           (_verseFaults[_currentVerseIndex] ?? 0) + 1;
       if (mounted) {
         setState(() {
           _isProcessing = false;
-          _statusText = serverResult == null && audioPath != null
-              ? 'تعذر الاتصال بالخادم. تحقق من الشبكة وحاول مرة أخرى.'
-              : 'لم يتم التعرف على الصوت. جاري إعادة تشغيل الشيخ...';
+          _statusText = 'لم يُسجَّل صوت. جاري إعادة تشغيل الشيخ...';
         });
       }
-      if (serverResult == null) {
-        Future.delayed(const Duration(milliseconds: 2500), () {
-          if (mounted) _playHusaryVerse();
-        });
-      }
+      Future.delayed(const Duration(milliseconds: 1200), () {
+        if (mounted) _playHusaryVerse();
+      });
       return;
     }
 
-    final similarity = serverResult != null
-        ? ((serverResult['similarity_score'] as num?) ?? 0).toDouble() / 100
-        : _computeLocalSimilarity(_liveTranscription);
-
-    // Brief pause so the user can see word highlights before advancing.
     if (mounted) {
-      setState(() => _isProcessing = false);
+      setState(() => _statusText = 'جاري تحليل التلاوة على الخادم...');
     }
-    await Future.delayed(const Duration(milliseconds: 1500));
+    try {
+      final verse = _verses[_currentVerseIndex];
+      final api = context.read<RecitationApiService>();
+      serverResult = await api.analyzeRecitation(
+        audioFilePath: audioPath,
+        surahNumber: verse.surahNumber,
+        riwayah: _analysisRiwayah,
+        startAyah: verse.verseNumber,
+        endAyah: verse.verseNumber,
+        timeout: const Duration(seconds: 180),
+      );
+      if (mounted) {
+        _applyCorrectionFromServer(serverResult, letterOnly: true);
+        setState(() {
+          _isProcessing = false;
+          _statusText = 'راجع أخطاء الكلمات...';
+        });
+      }
+    } catch (e) {
+      debugPrint('Tahfeez server analysis failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'تعذر الاتصال بخادم التحليل. تحقق من عنوان الخادم في الإعدادات.',
+            ),
+            backgroundColor: QuranyTheme.errorRed,
+          ),
+        );
+      }
+    } finally {
+      try {
+        await File(audioPath).delete();
+      } catch (_) {}
+      _recordedAudioPath = null;
+      _usingHardwareMic = false;
+    }
 
-    await _validateTahfeezWithSimilarity(
-      similarity,
-      serverResult: serverResult,
-      tashkeelTranscript: _liveTranscription,
-    );
+    if (serverResult != null) {
+      final hasLetterErrors = _hasLetterMistakes(serverResult);
+      if (hasLetterErrors) {
+        _verseFaults[_currentVerseIndex] =
+            (_verseFaults[_currentVerseIndex] ?? 0) + 1;
+        if (mounted) {
+          setState(() {
+            _awaitingMistakeReview = true;
+            _isProcessing = false;
+            _statusText = 'راجع أخطاءك، ثم اضغط للاستماع للشيخ وحاول مجدداً';
+          });
+        }
+        return;
+      }
+
+      final similarity =
+          ((serverResult['similarity_score'] as num?) ?? 0).toDouble() / 100;
+      await Future.delayed(const Duration(milliseconds: 300));
+      await _validateTahfeezWithSimilarity(
+        similarity,
+        serverResult: serverResult,
+      );
+      return;
+    }
+
+    _verseFaults[_currentVerseIndex] =
+        (_verseFaults[_currentVerseIndex] ?? 0) + 1;
+    if (mounted) {
+      setState(() {
+        _isProcessing = false;
+        _statusText = 'تعذر الاتصال بالخادم. جاري إعادة تشغيل الشيخ...';
+      });
+    }
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (mounted) _playHusaryVerse();
+    });
   }
 
   double _computeLocalSimilarity(String transcription) {
@@ -1422,95 +1514,100 @@ class _RecitationScreenState extends State<RecitationScreen>
     return refWords.isNotEmpty ? matchedCount / refWords.length : 0;
   }
 
+  Future<void> _finishMuallimSession() async {
+    if (widget.planDayNumber != null && widget.planId != null) {
+      if (mounted) {
+        await context
+            .read<LearningPlanService>()
+            .markTaskCompleted(widget.planId!, widget.planDayNumber!);
+      }
+    }
+
+    final totalVerses = _verses.length;
+    final totalCorrectedFaults =
+        _verseFaults.values.fold(0, (sum, val) => sum + val);
+    final Map<String, int> faultsDetail = {};
+    _verseFaults.forEach((idx, count) {
+      if (idx < _verses.length) {
+        final v = _verses[idx];
+        final sIdx = v.surahNumber < 1 ? 0 : v.surahNumber - 1;
+        faultsDetail[
+            '${AppConstants.surahNames[sIdx]} آية ${v.verseNumber}'] = count;
+      }
+    });
+
+    final resolvedResults = _tashkeelFutures.isEmpty
+        ? <Map<String, dynamic>?>[]
+        : await Future.wait(_tashkeelFutures);
+
+    final serializableResults = resolvedResults
+        .whereType<Map<String, dynamic>>()
+        .map((m) => Map<String, dynamic>.from(m))
+        .toList();
+
+    if (widget.planId != null && widget.planDayNumber != null && mounted) {
+      await context.read<LearningPlanService>().saveMuallimReport(
+            widget.planId!,
+            widget.planDayNumber!,
+            {
+              'totalVerses': totalVerses,
+              'totalCorrectedFaults': totalCorrectedFaults,
+              'faultsDetail': faultsDetail,
+              'tashkeelAyahLabels': _tashkeelAyahLabels,
+              'analysisResults': serializableResults,
+            },
+          );
+    }
+
+    if (mounted) {
+      Navigator.pushReplacementNamed(
+        context,
+        AppRoutes.statistics,
+        arguments: {
+          'totalVerses': totalVerses,
+          'totalCorrectedFaults': totalCorrectedFaults,
+          'faultsDetail': faultsDetail,
+          'tashkeelFutures': _tashkeelFutures,
+          'tashkeelAyahLabels': _tashkeelAyahLabels,
+          'analysisResults': serializableResults,
+        },
+      );
+    }
+  }
+
   Future<void> _validateTahfeezWithSimilarity(
     double similarity, {
     Map<String, dynamic>? serverResult,
-    required String tashkeelTranscript,
   }) async {
-    if (similarity >= 0.8) {
+    final passed = similarity >= 0.8;
+
+    if (passed) {
       if (serverResult != null) {
         _queueTashkeelFromAnalyzeResult(
           serverResult,
           _verses[_currentVerseIndex],
         );
-      } else {
-        _queueTashkeelAnalysis(tashkeelTranscript);
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تلاوة صحيحة!'),
-            backgroundColor: QuranyTheme.correctGreen,
-            duration: Duration(milliseconds: 800),
-          ),
-        );
         setState(() {
           _isProcessing = false;
+          _statusText = 'تلاوة صحيحة — الانتقال للآية التالية...';
         });
       }
 
       final isLastVerse = _currentVerseIndex == _verses.length - 1;
       if (isLastVerse) {
-        if (widget.planDayNumber != null && widget.planId != null) {
-          if (mounted) {
-            await context
-                .read<LearningPlanService>()
-                .markTaskCompleted(widget.planId!, widget.planDayNumber!);
-          }
-        }
-
-        final totalVerses = _verses.length;
-        final totalCorrectedFaults =
-            _verseFaults.values.fold(0, (sum, val) => sum + val);
-        final Map<String, int> faultsDetail = {};
-        _verseFaults.forEach((idx, count) {
-          if (idx < _verses.length) {
-            final v = _verses[idx];
-            final sIdx = v.surahNumber < 1 ? 0 : v.surahNumber - 1;
-            faultsDetail[
-                '${AppConstants.surahNames[sIdx]} آية ${v.verseNumber}'] = count;
-          }
-        });
-
-        if (mounted) {
-          Navigator.pushReplacementNamed(
-            context,
-            AppRoutes.statistics,
-            arguments: {
-              'totalVerses': totalVerses,
-              'totalCorrectedFaults': totalCorrectedFaults,
-              'faultsDetail': faultsDetail,
-              'tashkeelFutures': _tashkeelFutures,
-              'tashkeelAyahLabels': _tashkeelAyahLabels,
-            },
-          );
-        }
+        await _finishMuallimSession();
         return;
       }
 
+      await Future.delayed(const Duration(milliseconds: 200));
       _tahfeezNextVerse();
     } else {
-      _verseFaults[_currentVerseIndex] =
-          (_verseFaults[_currentVerseIndex] ?? 0) + 1;
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تلاوة غير صحيحة، استمع للشيخ وحاول مرة أخرى'),
-            backgroundColor: QuranyTheme.errorRed,
-            duration: Duration(seconds: 2),
-          ),
-        );
-        setState(() {
-          _isProcessing = false;
-          _statusText = 'تلاوة غير صحيحة، استمع للشيخ...';
-        });
-      }
-
-      Future.delayed(const Duration(milliseconds: 2500), () {
-        if (mounted) _playHusaryVerse();
-      });
+      await _retryTahfeezAyahWithHusary(
+        'تلاوة غير مقبولة — استمع للشيخ وحاول مرة أخرى',
+      );
     }
   }
 
@@ -1989,8 +2086,20 @@ class _RecitationScreenState extends State<RecitationScreen>
           textColor = QuranyTheme.warningOrange;
           break;
         case _MatchStatus.error:
-          bgColor = QuranyTheme.errorRed.withValues(alpha: 0.15);
-          textColor = QuranyTheme.errorRed;
+          if (match.errorType == 'omission') {
+            bgColor = Colors.deepOrange.withValues(alpha: 0.15);
+            textColor = Colors.deepOrange;
+          } else if (match.errorType == 'addition') {
+            bgColor = Colors.purple.withValues(alpha: 0.15);
+            textColor = Colors.purple;
+          } else {
+            bgColor = QuranyTheme.errorRed.withValues(alpha: 0.15);
+            textColor = QuranyTheme.errorRed;
+          }
+          break;
+        case _MatchStatus.harakat:
+          bgColor = Colors.teal.withValues(alpha: 0.15);
+          textColor = Colors.teal;
           break;
         case _MatchStatus.pending:
           bgColor = Colors.transparent;
@@ -2013,7 +2122,10 @@ class _RecitationScreenState extends State<RecitationScreen>
             border: match.status == _MatchStatus.error
                 ? Border.all(
                     color: QuranyTheme.errorRed.withValues(alpha: value * 0.5))
-                : null,
+                : match.status == _MatchStatus.harakat
+                    ? Border.all(
+                        color: Colors.teal.withValues(alpha: value * 0.5))
+                    : null,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2031,14 +2143,19 @@ class _RecitationScreenState extends State<RecitationScreen>
                 ),
                 textDirection: TextDirection.rtl,
               ),
-              if (match.status == _MatchStatus.error &&
+              if ((match.status == _MatchStatus.error ||
+                      match.status == _MatchStatus.harakat) &&
                   match.recitedAs != null) ...[
                 Text(
                   match.recitedAs!,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
-                    color: QuranyTheme.errorRed,
-                    decoration: TextDecoration.lineThrough,
+                    color: match.status == _MatchStatus.harakat
+                        ? Colors.teal
+                        : QuranyTheme.errorRed,
+                    decoration: match.status == _MatchStatus.harakat
+                        ? null
+                        : TextDecoration.lineThrough,
                   ),
                   textDirection: TextDirection.rtl,
                 ),
@@ -2177,6 +2294,8 @@ class _RecitationScreenState extends State<RecitationScreen>
         const SizedBox(width: 16),
         _legendItem('خطأ', QuranyTheme.errorRed),
         const SizedBox(width: 16),
+        _legendItem('تشكيل', Colors.teal),
+        const SizedBox(width: 16),
         _legendItem('لم يُقرأ', Colors.grey),
       ],
     );
@@ -2202,183 +2321,92 @@ class _RecitationScreenState extends State<RecitationScreen>
   }
 
   // ─────────────────── Tahfeez Mode (تحفيظ) ───────────────────
-  /// Verse-by-verse memorization with Al-Husary listen-then-repeat flow
+  /// Automatic verse-by-verse flow: Husary → mic → server analysis → next ayah.
   Widget _buildTahfeezMode() {
     if (_verses.isEmpty) {
       return const Center(child: Text('لا توجد آيات'));
-    }
-
-    if (!_hasStarted) {
-      return Center(
-        child: Container(
-          margin: const EdgeInsets.all(24),
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: QuranyTheme.surface,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: const [
-              BoxShadow(
-                color: QuranyTheme.shadow,
-                blurRadius: 15,
-                offset: Offset(0, 5),
-              ),
-            ],
-            border: Border.all(color: QuranyTheme.border),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.school_rounded,
-                size: 80,
-                color: QuranyTheme.primaryGreen,
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'مصحف التكرار والتعلم',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: QuranyTheme.darkGreen),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'اضغط على زر البدء للاستماع لتلاوة الشيخ الحصري ثم الترديد بعده تلقائياً.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.grey, height: 1.5),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: () {
-                    setState(() {
-                      _hasStarted = true;
-                    });
-                    _playHusaryVerse();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: QuranyTheme.primaryGreen,
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text('ابدأ التعلم', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
     }
 
     final verse = _verses[_currentVerseIndex];
 
     return Column(
       children: [
-        // Verse navigation header
         Container(
           margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
             color: const Color(0xFF1565C0).withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              IconButton(
-                icon: AppIcons.navPrevious(
-                  color: _currentVerseIndex > 0
-                      ? const Color(0xFF1565C0)
-                      : Colors.grey.shade300,
+              Text(
+                'الآية ${verse.verseNumber} من ${_verses.length}',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1565C0),
                 ),
-                onPressed: _currentVerseIndex > 0 && !_isRecording && !_isPlayingHusary
-                    ? _tahfeezPrevVerse
-                    : null,
-              ),
-              Expanded(
-                child: Center(
-                  child: Text(
-                    'الآية ${verse.verseNumber}',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1565C0),
-                    ),
-                  ),
-                ),
-              ),
-              IconButton(
-                icon: AppIcons.navNext(
-                  color: _currentVerseIndex < _verses.length - 1
-                      ? const Color(0xFF1565C0)
-                      : Colors.grey.shade300,
-                ),
-                onPressed: _currentVerseIndex < _verses.length - 1 &&
-                        !_isRecording &&
-                        !_isPlayingHusary
-                    ? _tahfeezNextVerse
-                    : null,
               ),
             ],
           ),
         ),
 
-        // Step indicator
         Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16),
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: _isRecording
                   ? [Colors.red.shade50, Colors.red.shade100]
                   : _isPlayingHusary
                       ? [Colors.green.shade50, Colors.green.shade100]
-                      : _husaryFinished
-                          ? [Colors.orange.shade50, Colors.orange.shade100]
-                          : [Colors.blue.shade50, Colors.blue.shade100],
+                      : _isProcessing
+                          ? [Colors.blue.shade50, Colors.blue.shade100]
+                          : [Colors.orange.shade50, Colors.orange.shade100],
             ),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
             children: [
               Icon(
-                _isRecording
-                    ? Icons.mic
-                    : _isPlayingHusary
-                        ? Icons.volume_up_rounded
-                        : _husaryFinished
-                            ? Icons.record_voice_over
+                _isProcessing
+                    ? Icons.hourglass_top_rounded
+                    : _isRecording
+                        ? Icons.mic
+                        : _isPlayingHusary
+                            ? Icons.volume_up_rounded
                             : Icons.headphones_rounded,
-                color: _isRecording
-                    ? Colors.red
-                    : _isPlayingHusary
-                        ? Colors.green.shade700
-                        : _husaryFinished
-                            ? Colors.orange.shade700
-                            : const Color(0xFF1565C0),
+                color: _isProcessing
+                    ? const Color(0xFF1565C0)
+                    : _isRecording
+                        ? Colors.red
+                        : _isPlayingHusary
+                            ? Colors.green.shade700
+                            : Colors.orange.shade700,
                 size: 22,
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  _isRecording
-                      ? 'جاري التسجيل — اقرأ الآن'
-                      : _isPlayingHusary
-                          ? 'استمع للشيخ الحصري...'
-                          : _husaryFinished
-                              ? 'دورك! اقرأ الآن تلقائياً'
-                              : 'اضغط للاستماع للحصري أولاً',
+                  _isProcessing
+                      ? 'جاري تحليل تلاوتك على الخادم...'
+                      : _isRecording
+                          ? 'اقرأ الآن — الميكروفون مفتوح'
+                          : _isPlayingHusary
+                              ? 'استمع للشيخ الحصري...'
+                              : _statusText,
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: _isRecording
-                        ? Colors.red.shade800
-                        : _isPlayingHusary
-                            ? Colors.green.shade800
-                            : _husaryFinished
-                                ? Colors.orange.shade800
-                                : const Color(0xFF1565C0),
+                    color: _isProcessing
+                        ? const Color(0xFF1565C0)
+                        : _isRecording
+                            ? Colors.red.shade800
+                            : _isPlayingHusary
+                                ? Colors.green.shade800
+                                : Colors.orange.shade800,
                   ),
                   textDirection: TextDirection.rtl,
                 ),
@@ -2400,109 +2428,13 @@ class _RecitationScreenState extends State<RecitationScreen>
           ),
         ),
 
-        const SizedBox(height: 8),
-
-        if (!_isRecording && !_isPlayingHusary && !_husaryFinished)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _playHusaryVerse,
-                icon: const Icon(Icons.play_circle_fill, size: 28),
-                label: const Text(
-                  'استمع للشيخ الحصري',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: QuranyTheme.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  elevation: 2,
-                ),
-              ),
-            ),
-          ),
-
-        if (_isPlayingHusary)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _stopHusary,
-                icon: const Icon(Icons.skip_next_rounded, size: 28),
-                label: const Text(
-                  'تخطي — أنا جاهز للقراءة',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: QuranyTheme.accent,
-                  foregroundColor: QuranyTheme.forest,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  elevation: 2,
-                ),
-              ),
-            ),
-          ),
-
-        if (_husaryFinished && !_isRecording && !_isProcessing)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _startUserTurnRecording,
-                    icon: const Icon(Icons.mic, size: 28),
-                    label: const Text(
-                      'أعد التسجيل يدوياً',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red.shade600,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      elevation: 2,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextButton.icon(
-                  onPressed: _playHusaryVerse,
-                  icon: Icon(Icons.replay, size: 18, color: Colors.green.shade700),
-                  label: Text(
-                    'أعد الاستماع للحصري',
-                    style: TextStyle(color: Colors.green.shade700, fontSize: 13),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-        const SizedBox(height: 8),
-
-        // Mushaf blank area
         Expanded(
           child: Container(
             margin: const EdgeInsets.symmetric(horizontal: 16),
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  const Color(0xFFF9F3E4),
-                  const Color(0xFFFDF7EE),
-                ],
+              gradient: const LinearGradient(
+                colors: [Color(0xFFF9F3E4), Color(0xFFFDF7EE)],
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
               ),
@@ -2519,28 +2451,39 @@ class _RecitationScreenState extends State<RecitationScreen>
                 ),
               ],
             ),
-            child: _buildTahfeezHighlightedVerse(),
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  _buildTahfeezHighlightedVerse(),
+                  if (_matchedWords.any((m) => m.status == _MatchStatus.error)) ...[
+                    const SizedBox(height: 16),
+                    _buildTahfeezErrorLegend(),
+                  ],
+                ],
+              ),
+            ),
           ),
         ),
 
-        if (!_isRecording &&
-            !_isPlayingHusary &&
-            _currentVerseIndex < _verses.length - 1 &&
-            _liveTranscription.isNotEmpty &&
-            !_isProcessing)
-          Container(
-            margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _tahfeezNextVerse,
-              icon: AppIcons.actionForward(color: Colors.white),
-              label: const Text('الآية التالية'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1565C0),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+        if (_awaitingMistakeReview)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _onMistakeReviewContinue,
+                icon: const Icon(Icons.volume_up_rounded, size: 24),
+                label: const Text(
+                  'استمع للشيخ وحاول مجدداً',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: QuranyTheme.primaryGreen,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
               ),
             ),
@@ -2549,39 +2492,43 @@ class _RecitationScreenState extends State<RecitationScreen>
     );
   }
 
-  Widget _buildTahfeezHighlightedVerse() {
-    final verseText = _verses[_currentVerseIndex].text;
-    final refWords = verseText.split(' ');
-    final transWords = _normalizeArabic(_liveTranscription).split(' ');
-    final normalizedRef = refWords.map((w) => _normalizeArabic(w)).toList();
+  Widget _buildTahfeezErrorLegend() {
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 12,
+      runSpacing: 6,
+      children: [
+        _legendItem('صحيح', QuranyTheme.correctGreen),
+        _legendItem('كلمة خاطئة', QuranyTheme.errorRed),
+        _legendItem('كلمة ناقصة', Colors.deepOrange),
+        _legendItem('كلمة زائدة', Colors.purple),
+      ],
+    );
+  }
 
-    final localMatches = <_WordMatch>[];
-    int ti = 0;
-    for (int ri = 0; ri < refWords.length; ri++) {
-      if (ti < transWords.length && ri < normalizedRef.length) {
-        if (normalizedRef[ri] == transWords[ti]) {
-          localMatches.add(_WordMatch(word: refWords[ri], status: _MatchStatus.correct));
-          ti++;
-        } else if (_isSimilar(normalizedRef[ri], transWords[ti])) {
-          localMatches
-              .add(_WordMatch(word: refWords[ri], status: _MatchStatus.partial, recitedAs: transWords[ti]));
-          ti++;
-        } else {
-          localMatches
-              .add(_WordMatch(word: refWords[ri], status: _MatchStatus.error, recitedAs: transWords[ti]));
-          ti++;
-        }
-      } else {
-        localMatches.add(_WordMatch(word: refWords[ri], status: _MatchStatus.pending));
-      }
+  Widget _buildTahfeezHighlightedVerse() {
+    if (_matchedWords.isNotEmpty) {
+      return Wrap(
+        alignment: WrapAlignment.center,
+        textDirection: TextDirection.rtl,
+        spacing: 6,
+        runSpacing: 10,
+        children: _matchedWords.map((m) => _buildHighlightedWord(m)).toList(),
+      );
     }
 
+    final verseText = _verses[_currentVerseIndex].text;
+    final refWords = verseText.split(' ').where((w) => w.isNotEmpty).toList();
     return Wrap(
       alignment: WrapAlignment.center,
       textDirection: TextDirection.rtl,
       spacing: 6,
       runSpacing: 10,
-      children: localMatches.map((m) => _buildHighlightedWord(m)).toList(),
+      children: refWords
+          .map((w) => _buildHighlightedWord(
+                _WordMatch(word: w, status: _MatchStatus.pending),
+              ))
+          .toList(),
     );
   }
 
@@ -3090,9 +3037,102 @@ class _RecitationScreenState extends State<RecitationScreen>
   }
 
   Widget _buildRecordingControls() {
-    if (widget.mode == 'tahfeez' && !_hasStarted) {
-      return const SizedBox.shrink();
+    if (widget.mode == 'tahfeez') {
+      return Container(
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+        decoration: BoxDecoration(
+          color: QuranyTheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 20,
+              offset: const Offset(0, -5),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_isRecording)
+              SizedBox(
+                height: 50,
+                child: AnimatedBuilder(
+                  animation: _waveController,
+                  builder: (context, _) {
+                    return CustomPaint(
+                      size: const Size(double.infinity, 50),
+                      painter: _WaveformPainter(
+                        amplitudes: _amplitudes,
+                        color: QuranyTheme.primaryGreen,
+                        animationValue: _waveController.value,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            if (_isRecording && _usingHardwareMic)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  '● الميكروفون نشط',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: QuranyTheme.correctGreen,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            if (_isRecording) ...[
+              const SizedBox(height: 8),
+              Text(
+                _audioService.formatDuration(_recordingSeconds),
+                style: const TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: QuranyTheme.darkGreen,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+            if (_isProcessing)
+              Column(
+                children: [
+                  SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3,
+                      color: QuranyTheme.primaryGreen,
+                      backgroundColor:
+                          QuranyTheme.primaryGreen.withValues(alpha: 0.1),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'جاري تحليل التلاوة على الخادم...',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: QuranyTheme.primaryGreen,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              )
+            else if (!_isRecording)
+              Text(
+                _statusText,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey[600],
+                ),
+                textAlign: TextAlign.center,
+              ),
+          ],
+        ),
+      );
     }
+
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
       decoration: BoxDecoration(
@@ -3293,17 +3333,19 @@ class _RecitationScreenState extends State<RecitationScreen>
 
 // ─────────────────── Helper classes ───────────────────
 
-enum _MatchStatus { correct, partial, error, pending }
+enum _MatchStatus { correct, partial, error, harakat, pending }
 
 class _WordMatch {
   final String word;
   final _MatchStatus status;
   final String? recitedAs;
+  final String? errorType;
 
   const _WordMatch({
     required this.word,
     required this.status,
     this.recitedAs,
+    this.errorType,
   });
 }
 

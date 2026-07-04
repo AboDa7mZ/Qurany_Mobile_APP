@@ -72,7 +72,14 @@ def _build_result(
     alignment_meta: dict | None = None,
     *,
     riwayah: str = DEFAULT_RIWAYAH,
+    skip_basmallah: bool = False,
 ) -> dict:
+    if skip_basmallah:
+        from ..utils.arabic import strip_leading_basmallah
+
+        reference_text = strip_leading_basmallah(reference_text)
+        transcribed_text = strip_leading_basmallah(transcribed_text)
+
     feedback = analyze_alignment(reference_text, transcribed_text, hyp_word_timings=hyp_word_timings)
 
     tajweed_notes: list[dict] = []
@@ -113,6 +120,7 @@ def analyze_text(
     end_ayah: int | None = None,
     auto_detect_ayah_range: bool | None = None,
     riwayah: str | None = None,
+    skip_basmallah: bool = False,
 ) -> dict:
     """Compare already-transcribed text against a surah's reference."""
     riwayah = normalize_riwayah(riwayah)
@@ -129,6 +137,7 @@ def analyze_text(
         transcribed_text,
         alignment_meta=meta,
         riwayah=riwayah,
+        skip_basmallah=skip_basmallah,
     )
 
 
@@ -140,6 +149,7 @@ def analyze_audio(
     end_ayah: int | None = None,
     auto_detect_ayah_range: bool | None = None,
     riwayah: str | None = None,
+    skip_basmallah: bool = False,
 ) -> dict:
     """Full pipeline: transcribe the audio file, then compare."""
     riwayah = normalize_riwayah(riwayah)
@@ -162,4 +172,5 @@ def analyze_audio(
         audio_path=audio_path,
         alignment_meta=meta,
         riwayah=riwayah,
+        skip_basmallah=skip_basmallah,
     )

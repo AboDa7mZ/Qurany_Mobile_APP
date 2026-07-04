@@ -87,15 +87,19 @@ class TrackPlanScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'نسبة الإنجاز: ${(plan.progressPercentage * 100).toStringAsFixed(1)}%',
-                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                    Expanded(
+                      child: Text(
+                        'نسبة الإنجاز: ${(plan.progressPercentage * 100).toStringAsFixed(1)}%',
+                        style: const TextStyle(color: Colors.white, fontSize: 16),
+                      ),
                     ),
-                    Text(
-                      'اليوم ${plan.currentDay} من ${plan.totalDays}',
-                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                    Expanded(
+                      child: Text(
+                        'اليوم ${plan.currentDay} من ${plan.totalDays}',
+                        style: const TextStyle(color: Colors.white, fontSize: 16),
+                        textAlign: TextAlign.end,
+                      ),
                     ),
                   ],
                 ),
@@ -119,7 +123,6 @@ class TrackPlanScreen extends StatelessWidget {
               itemBuilder: (context, index) {
                 final task = plan.dailyTasks[index];
                 final isToday = task.dayNumber == plan.currentDay;
-                final isPast = task.dayNumber < plan.currentDay;
 
                 return Card(
                   elevation: isToday ? 4 : 1,
@@ -130,66 +133,165 @@ class TrackPlanScreen extends StatelessWidget {
                         : BorderSide.none,
                   ),
                   margin: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.all(16),
-                    leading: Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: task.isCompleted
-                            ? QuranyTheme.correctGreen
-                            : (isToday ? QuranyTheme.primaryGreen.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.1)),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Center(
-                        child: task.isCompleted
-                            ? const Icon(Icons.check, color: Colors.white)
-                            : Text(
-                                '${task.dayNumber}',
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: task.isCompleted
+                                    ? QuranyTheme.correctGreen
+                                    : (isToday
+                                        ? QuranyTheme.primaryGreen
+                                            .withValues(alpha: 0.1)
+                                        : Colors.grey.withValues(alpha: 0.1)),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Center(
+                                child: task.isCompleted
+                                    ? const Icon(Icons.check, color: Colors.white)
+                                    : Text(
+                                        '${task.dayNumber}',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: isToday
+                                              ? QuranyTheme.primaryGreen
+                                              : Colors.grey,
+                                        ),
+                                      ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'اليوم ${task.dayNumber}',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: task.isCompleted
+                                          ? Colors.grey
+                                          : Colors.black,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    task.description,
+                                    style: TextStyle(
+                                      color: task.isCompleted
+                                          ? Colors.grey
+                                          : Colors.black87,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (task.isCompleted &&
+                            planService.hasMuallimReport(
+                                plan.id, task.dayNumber)) ...[
+                          const SizedBox(height: 12),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton(
+                              onPressed: () {
+                                final report = planService.getMuallimReport(
+                                  plan.id,
+                                  task.dayNumber,
+                                );
+                                if (report == null) return;
+                                final labels =
+                                    (report['tashkeelAyahLabels'] as List?)
+                                            ?.map((e) =>
+                                                Map<String, dynamic>.from(
+                                                    e as Map))
+                                            .toList() ??
+                                        const <Map<String, dynamic>>[];
+                                final results =
+                                    (report['analysisResults'] as List?)
+                                            ?.map((e) =>
+                                                Map<String, dynamic>.from(
+                                                    e as Map))
+                                            .toList() ??
+                                        const <Map<String, dynamic>>[];
+                                Navigator.pushNamed(
+                                  context,
+                                  AppRoutes.statistics,
+                                  arguments: {
+                                    'totalVerses': report['totalVerses'] ?? 0,
+                                    'totalCorrectedFaults':
+                                        report['totalCorrectedFaults'] ?? 0,
+                                    'faultsDetail': Map<String, int>.from(
+                                      (report['faultsDetail'] as Map?)?.map(
+                                            (k, v) => MapEntry(
+                                              k.toString(),
+                                              (v as num).toInt(),
+                                            ),
+                                          ) ??
+                                          {},
+                                    ),
+                                    'tashkeelAyahLabels': labels,
+                                    'analysisResults': results,
+                                  },
+                                );
+                              },
+                              child: const Text(
+                                'عرض النتائج',
                                 style: TextStyle(
+                                  color: QuranyTheme.primaryGreen,
                                   fontWeight: FontWeight.bold,
-                                  color: isToday ? QuranyTheme.primaryGreen : Colors.grey,
                                 ),
                               ),
-                      ),
+                            ),
+                          ),
+                        ] else if (task.isCompleted) ...[
+                          const SizedBox(height: 8),
+                          const Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'مكتمل',
+                              style: TextStyle(
+                                color: QuranyTheme.correctGreen,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ] else if (isToday) ...[
+                          const SizedBox(height: 12),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: ElevatedButton(
+                              onPressed: () {
+                                Navigator.pushNamed(
+                                  context,
+                                  AppRoutes.recitation,
+                                  arguments: {
+                                    'surahNumber': task.startSurah,
+                                    'surahName': '',
+                                    'mode': 'tahfeez',
+                                    'planDayNumber': task.dayNumber,
+                                    'planId': plan.id,
+                                  },
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: QuranyTheme.primaryGreen,
+                                foregroundColor: Colors.white,
+                              ),
+                              child: const Text('تسميع'),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    title: Text(
-                      'اليوم ${task.dayNumber}',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: task.isCompleted ? Colors.grey : Colors.black,
-                      ),
-                    ),
-                    subtitle: Text(
-                      task.description,
-                      style: TextStyle(
-                        color: task.isCompleted ? Colors.grey : Colors.black87,
-                      ),
-                    ),
-                    trailing: task.isCompleted
-                        ? const Text('مكتمل', style: TextStyle(color: QuranyTheme.correctGreen, fontWeight: FontWeight.bold))
-                        : (isToday
-                            ? ElevatedButton(
-                                onPressed: () {
-                                  Navigator.pushNamed(
-                                    context,
-                                    AppRoutes.recitation,
-                                    arguments: {
-                                      'surahNumber': task.startSurah,
-                                      'surahName': '', // Re-fetched
-                                      'mode': 'tahfeez',
-                                      'planDayNumber': task.dayNumber,
-                                      'planId': plan.id,
-                                    },
-                                  );
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: QuranyTheme.primaryGreen,
-                                  foregroundColor: Colors.white,
-                                ),
-                                child: const Text('تسميع'),
-                              )
-                            : const SizedBox.shrink()),
                   ),
                 );
               },

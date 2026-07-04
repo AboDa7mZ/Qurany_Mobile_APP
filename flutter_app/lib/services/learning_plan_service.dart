@@ -101,6 +101,58 @@ class LearningPlanService extends ChangeNotifier {
     }
   }
 
+  static const String _muallimReportsKey = 'muallim_session_reports';
+
+  static String muallimSessionKey(String planId, int dayNumber) =>
+      '$planId:$dayNumber';
+
+  Map<String, dynamic> _loadMuallimReports() {
+    final raw = _prefs.getString(_muallimReportsKey);
+    if (raw == null) return {};
+    try {
+      final decoded = json.decode(raw);
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (e) {
+      debugPrint('Error loading muallim reports: $e');
+    }
+    return {};
+  }
+
+  Future<void> _saveMuallimReports(Map<String, dynamic> reports) async {
+    await _prefs.setString(_muallimReportsKey, json.encode(reports));
+  }
+
+  bool hasMuallimReport(String planId, int dayNumber) {
+    final key = muallimSessionKey(planId, dayNumber);
+    return _loadMuallimReports().containsKey(key);
+  }
+
+  Map<String, dynamic>? getMuallimReport(String planId, int dayNumber) {
+    final key = muallimSessionKey(planId, dayNumber);
+    final reports = _loadMuallimReports();
+    final report = reports[key];
+    if (report is Map) {
+      return Map<String, dynamic>.from(report);
+    }
+    return null;
+  }
+
+  Future<void> saveMuallimReport(
+    String planId,
+    int dayNumber,
+    Map<String, dynamic> report,
+  ) async {
+    final reports = _loadMuallimReports();
+    reports[muallimSessionKey(planId, dayNumber)] = {
+      ...report,
+      'savedAt': DateTime.now().toIso8601String(),
+    };
+    await _saveMuallimReports(reports);
+    notifyListeners();
+  }
+
   /// Mark a specific task complete inside a specific plan
   Future<void> markTaskCompleted(String planId, int dayNumber) async {
     final planIndex = _plans.indexWhere((p) => p.id == planId);

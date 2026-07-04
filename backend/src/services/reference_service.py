@@ -190,11 +190,8 @@ def get_surah_reference(surah_number: int, riwayah: str | None = None) -> SurahR
     riwayah = normalize_riwayah(riwayah)
     validate_riwayah_for_surah(riwayah, surah_number)
 
-    if surah_number not in settings.supported_surahs:
-        raise ValueError(
-            f"Surah {surah_number} is not supported in this MVP "
-            f"(supported: {settings.supported_surahs})."
-        )
+    if not (1 <= surah_number <= 114):
+        raise ValueError(f"Surah {surah_number} is out of range (valid: 1–114).")
 
     if riwayah == "bazzi":
         return _load_from_disk(surah_number, "bazzi") or _build_bazzi_reference()

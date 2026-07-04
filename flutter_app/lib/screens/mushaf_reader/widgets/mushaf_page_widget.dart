@@ -3,6 +3,7 @@ import '../../../config/constants.dart';
 import '../../../config/mushaf_pages.dart';
 import '../../../config/theme.dart';
 import '../../../models/mushaf_layout.dart';
+import '../../../services/mushaf_live_matcher.dart';
 
 const String _basmallahText = 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ';
 
@@ -55,7 +56,9 @@ class MushafPageWidget extends StatelessWidget {
   final String fontFamily;
   final String? selectedVerseKey;
   final bool hideAyahs;
+  final bool correctionMode;
   final Set<int> revealedWordIds;
+  final Map<int, MushafWordLiveState> wordStates;
   final int? activeWordId;
   final Function(MushafWord) onWordTap;
 
@@ -66,7 +69,9 @@ class MushafPageWidget extends StatelessWidget {
     required this.fontFamily,
     this.selectedVerseKey,
     this.hideAyahs = false,
+    this.correctionMode = true,
     this.revealedWordIds = const {},
+    this.wordStates = const {},
     this.activeWordId,
     required this.onWordTap,
   });
@@ -94,7 +99,9 @@ class MushafPageWidget extends StatelessWidget {
               fontFamily: fontFamily,
               textColor: textColor,
               hideAyahs: hideAyahs,
+              correctionMode: correctionMode,
               revealedWordIds: revealedWordIds,
+              wordStates: wordStates,
               selectedVerseKey: selectedVerseKey,
               activeWordId: activeWordId,
               onWordTap: onWordTap,
@@ -141,11 +148,28 @@ const double _minRenderedFontSize = 1.0;
 /// Only the rare, unusually dense line (many long words on a narrow
 /// screen) needs its font shrunk too, and even then only just enough to
 /// fit - never further than necessary.
+double _glyphWidth({
+  required String text,
+  required String fontFamily,
+  required double fontSize,
+}) {
+  final painter = TextPainter(
+    text: TextSpan(
+      text: text,
+      style: TextStyle(fontFamily: fontFamily, fontSize: fontSize),
+    ),
+    textDirection: TextDirection.rtl,
+    maxLines: 1,
+  )..layout();
+  return painter.width;
+}
+
 _LineFit _fitLine({
   required List<MushafWord> words,
   required String fontFamily,
   required double baseFontSize,
   required double maxWidth,
+  Map<int, MushafWordLiveState> wordStates = const {},
 }) {
   if (maxWidth <= 0 || words.isEmpty) {
     return _LineFit(baseFontSize, _maxWordMargin);
@@ -158,15 +182,21 @@ _LineFit _fitLine({
         total += _ayahMarkerDiameter(fontSize);
         continue;
       }
-      final painter = TextPainter(
-        text: TextSpan(
-          text: word.text,
-          style: TextStyle(fontFamily: fontFamily, fontSize: fontSize),
-        ),
-        textDirection: TextDirection.rtl,
-        maxLines: 1,
-      )..layout();
-      total += painter.width;
+      var width = _glyphWidth(
+        text: word.text,
+        fontFamily: fontFamily,
+        fontSize: fontSize,
+      );
+      final recited = wordStates[word.id]?.recitedAs;
+      if (recited != null && recited.isNotEmpty) {
+        final recitedWidth = _glyphWidth(
+          text: recited,
+          fontFamily: fontFamily,
+          fontSize: fontSize * 0.65,
+        );
+        if (recitedWidth > width) width = recitedWidth;
+      }
+      total += width;
     }
     return total;
   }
@@ -174,7 +204,7 @@ _LineFit _fitLine({
   final n = words.length;
   // Conservative width budget: font metrics differ slightly across platforms
   // (Linux CI vs local), so leave extra headroom to avoid RenderFlex overflow.
-  final usableWidth = maxWidth * 0.94;
+  final usableWidth = maxWidth * 0.92;
   final fixedChrome = n * _wordPadding * 2;
   final availableForGlyphs = usableWidth - fixedChrome;
 
@@ -204,6 +234,7 @@ _LineFit _fitLine({
     fontFamily: fontFamily,
     fit: fit,
     maxWidth: maxWidth,
+    wordStates: wordStates,
   );
 }
 
@@ -212,6 +243,7 @@ double _measuredLineWidth({
   required String fontFamily,
   required double fontSize,
   required double wordMargin,
+  Map<int, MushafWordLiveState> wordStates = const {},
 }) {
   var total = 0.0;
   for (final word in words) {
@@ -220,15 +252,21 @@ double _measuredLineWidth({
       total += _ayahMarkerDiameter(fontSize) + chrome;
       continue;
     }
-    final painter = TextPainter(
-      text: TextSpan(
-        text: word.text,
-        style: TextStyle(fontFamily: fontFamily, fontSize: fontSize),
-      ),
-      textDirection: TextDirection.rtl,
-      maxLines: 1,
-    )..layout();
-    total += painter.width + chrome;
+    var width = _glyphWidth(
+      text: word.text,
+      fontFamily: fontFamily,
+      fontSize: fontSize,
+    );
+    final recited = wordStates[word.id]?.recitedAs;
+    if (recited != null && recited.isNotEmpty) {
+      final recitedWidth = _glyphWidth(
+        text: recited,
+        fontFamily: fontFamily,
+        fontSize: fontSize * 0.65,
+      );
+      if (recitedWidth > width) width = recitedWidth;
+    }
+    total += width + chrome;
   }
   return total;
 }
@@ -239,18 +277,20 @@ _LineFit _tightenFitUntilMeasuredWidthFits({
   required String fontFamily,
   required _LineFit fit,
   required double maxWidth,
+  Map<int, MushafWordLiveState> wordStates = const {},
 }) {
   var current = fit;
-  for (var i = 0; i < 8; i++) {
+  for (var i = 0; i < 12; i++) {
     final measured = _measuredLineWidth(
       words: words,
       fontFamily: fontFamily,
       fontSize: current.fontSize,
       wordMargin: current.wordMargin,
+      wordStates: wordStates,
     );
-    if (measured <= maxWidth) return current;
+    if (measured <= maxWidth - 1) return current;
 
-    final scale = (maxWidth / measured) * 0.98;
+    final scale = (maxWidth / measured) * 0.96;
     current = _LineFit(
       (current.fontSize * scale).clamp(_minRenderedFontSize, current.fontSize),
       current.wordMargin,
@@ -265,7 +305,9 @@ class _MushafLineWidget extends StatelessWidget {
   final String fontFamily;
   final Color textColor;
   final bool hideAyahs;
+  final bool correctionMode;
   final Set<int> revealedWordIds;
+  final Map<int, MushafWordLiveState> wordStates;
   final String? selectedVerseKey;
   final int? activeWordId;
   final Function(MushafWord) onWordTap;
@@ -276,7 +318,9 @@ class _MushafLineWidget extends StatelessWidget {
     required this.fontFamily,
     required this.textColor,
     this.hideAyahs = false,
+    this.correctionMode = true,
     required this.revealedWordIds,
+    this.wordStates = const {},
     this.selectedVerseKey,
     this.activeWordId,
     required this.onWordTap,
@@ -344,6 +388,7 @@ class _MushafLineWidget extends StatelessWidget {
             fontFamily: fontFamily,
             baseFontSize: fontSize,
             maxWidth: constraints.maxWidth,
+            wordStates: wordStates,
           );
 
           return Flex(
@@ -358,9 +403,11 @@ class _MushafLineWidget extends StatelessWidget {
                   fontSize: fit.fontSize,
                   horizontalMargin: fit.wordMargin,
                   fontFamily: fontFamily,
-                  textColor: (hideAyahs && !revealedWordIds.contains(word.id))
-                      ? Colors.transparent 
-                      : textColor,
+                  textColor: textColor,
+                  hideAyahs: hideAyahs,
+                  correctionMode: correctionMode,
+                  liveState: wordStates[word.id],
+                  legacyRevealed: revealedWordIds.contains(word.id),
                   selectedVerseKey: selectedVerseKey,
                   activeWordId: activeWordId,
                   onWordTap: onWordTap,
@@ -380,6 +427,10 @@ class _MushafWordWidget extends StatelessWidget {
   final double horizontalMargin;
   final String fontFamily;
   final Color textColor;
+  final bool hideAyahs;
+  final bool correctionMode;
+  final MushafWordLiveState? liveState;
+  final bool legacyRevealed;
   final String? selectedVerseKey;
   final int? activeWordId;
   final Function(MushafWord) onWordTap;
@@ -390,15 +441,67 @@ class _MushafWordWidget extends StatelessWidget {
     required this.horizontalMargin,
     required this.fontFamily,
     required this.textColor,
+    this.hideAyahs = false,
+    this.correctionMode = true,
+    this.liveState,
+    this.legacyRevealed = false,
     this.selectedVerseKey,
     this.activeWordId,
     required this.onWordTap,
   });
 
+  Color? get _backgroundColor {
+    final status = liveState?.status;
+    if (status == MushafWordLiveStatus.correct) {
+      return QuranyTheme.correctGreen.withValues(alpha: 0.22);
+    }
+    if (status == MushafWordLiveStatus.wrong) {
+      return QuranyTheme.errorRed.withValues(alpha: 0.22);
+    }
+    if (status == MushafWordLiveStatus.omitted) {
+      return Colors.deepOrange.withValues(alpha: 0.22);
+    }
+    if (word.id == activeWordId && correctionMode) {
+      return QuranyTheme.primaryGold.withValues(alpha: 0.3);
+    }
+    return null;
+  }
+
+  Color _resolvedTextColor(bool isSelected) {
+    if (liveState != null) {
+      final status = liveState!.status;
+      // Free mode: hide only words not yet reached; show wrong/omitted/correct.
+      if (!correctionMode && hideAyahs) {
+        if (status == MushafWordLiveStatus.pending) {
+          return Colors.transparent;
+        }
+      }
+      switch (status) {
+        case MushafWordLiveStatus.correct:
+          return QuranyTheme.correctGreen;
+        case MushafWordLiveStatus.wrong:
+          return QuranyTheme.errorRed;
+        case MushafWordLiveStatus.omitted:
+          return Colors.deepOrange.shade800;
+        case MushafWordLiveStatus.pending:
+          break;
+      }
+    } else if (hideAyahs && !legacyRevealed) {
+      return Colors.transparent;
+    }
+    if (isSelected) return textColor;
+    return textColor;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isSelected = word.verseKey == selectedVerseKey;
     final isActive = word.id == activeWordId;
+    final bg = _backgroundColor ??
+        (isActive && liveState == null
+            ? QuranyTheme.primaryGold.withValues(alpha: 0.3)
+            : (isSelected ? QuranyTheme.accent.withValues(alpha: 0.25) : null));
+    final displayColor = _resolvedTextColor(isSelected);
 
     if (word.isAyahMarker) {
       return GestureDetector(
@@ -414,28 +517,62 @@ class _MushafWordWidget extends StatelessWidget {
       );
     }
 
-    return GestureDetector(
-      onTap: () => onWordTap(word),
-      child: Container(
-        margin: EdgeInsets.symmetric(horizontal: horizontalMargin),
-        decoration: BoxDecoration(
-          color: isActive 
-             ? QuranyTheme.primaryGold.withValues(alpha: 0.3)
-             : (isSelected ? QuranyTheme.accent.withValues(alpha: 0.25) : null),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        padding: const EdgeInsets.symmetric(
-          horizontal: _wordPadding,
-          vertical: 1,
-        ),
-        child: Text(
-          word.text,
-          style: TextStyle(
+    final showRecited = liveState?.status == MushafWordLiveStatus.wrong &&
+        liveState?.recitedAs != null &&
+        liveState!.recitedAs!.isNotEmpty;
+    final wordGlyphWidth = word.isAyahMarker
+        ? _ayahMarkerDiameter(fontSize)
+        : _glyphWidth(
+            text: word.text,
             fontFamily: fontFamily,
             fontSize: fontSize,
-            color: textColor,
+          );
+
+    return GestureDetector(
+      onTap: () => onWordTap(word),
+      child: RepaintBoundary(
+        child: Container(
+          margin: EdgeInsets.symmetric(horizontal: horizontalMargin),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(4),
           ),
-          textDirection: TextDirection.rtl,
+          padding: const EdgeInsets.symmetric(
+            horizontal: _wordPadding,
+            vertical: 1,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                word.text,
+                style: TextStyle(
+                  fontFamily: fontFamily,
+                  fontSize: fontSize,
+                  color: displayColor,
+                ),
+                textDirection: TextDirection.rtl,
+              ),
+              if (showRecited)
+                SizedBox(
+                  width: wordGlyphWidth,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.center,
+                    child: Text(
+                      liveState!.recitedAs!,
+                      style: TextStyle(
+                        fontFamily: fontFamily,
+                        fontSize: fontSize * 0.65,
+                        color: QuranyTheme.errorRed.withValues(alpha: 0.85),
+                      ),
+                      textDirection: TextDirection.rtl,
+                      maxLines: 1,
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

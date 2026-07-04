@@ -7,6 +7,7 @@ from src.utils.arabic import (
     normalize_arabic,
     normalize_arabic_keep_harakat,
     normalize_words,
+    strip_leading_basmallah,
     word_similarity,
 )
 
@@ -68,3 +69,18 @@ def test_normalize_arabic_keep_harakat_round_trips_to_plain_normalize():
     assert normalize_arabic(kept) == normalize_arabic(original)
     # But harakat must actually still be present (i.e. this isn't a no-op).
     assert contains_harakat(kept)
+
+
+def test_strip_leading_basmallah_full_prefix():
+    text = "بسم الله الرحمن الرحيم الم ذٰلِكَ"
+    assert strip_leading_basmallah(text) == "الم ذٰلِكَ"
+
+
+def test_strip_leading_basmallah_no_prefix():
+    text = "الحمد لله رب العالمين"
+    assert strip_leading_basmallah(text) == text
+
+
+def test_strip_leading_basmallah_partial_prefix():
+    text = "بسم الله الحمد لله"
+    assert strip_leading_basmallah(text) == "الحمد لله"

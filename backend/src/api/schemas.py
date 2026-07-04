@@ -82,6 +82,7 @@ class AnalyzeTextRequest(BaseModel):
     start_ayah: int | None = Field(default=None, alias="startAyah")
     end_ayah: int | None = Field(default=None, alias="endAyah")
     auto_detect_ayah_range: bool | None = Field(default=None, alias="autoDetectAyahRange")
+    skip_basmallah: bool | None = Field(default=None, alias="skipBasmallah")
     riwayah: str | None = Field(
         default="hafs",
         description="qira'a: hafs (default) or bazzi (Surah 2 only)",
