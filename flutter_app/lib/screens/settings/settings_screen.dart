@@ -177,7 +177,12 @@ class _ServerAddressCardState extends State<_ServerAddressCard> {
   }
 
   Future<void> _save() async {
-    final value = _controller.text.trim();
+    final raw = _controller.text.trim();
+    final value =
+        raw.isEmpty ? raw : AppConstants.normalizeApiBaseUrl(raw);
+    if (value.isNotEmpty) {
+      _controller.text = value;
+    }
     final prefs = await SharedPreferences.getInstance();
     if (value.isEmpty) {
       await prefs.remove(AppConstants.recitationApiPrefsKey);

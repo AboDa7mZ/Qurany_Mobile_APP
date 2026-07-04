@@ -163,6 +163,7 @@ If the build fails with a missing or corrupt NDK:
    ```powershell
    flutter pub get
    flutter run
+   flutter run -d emulator-5554 --dart-define=QURANY_API_BASE=http://192.168.1.25:8000/
    ```
 
    Or target a specific device:

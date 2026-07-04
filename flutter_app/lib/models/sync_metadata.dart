@@ -1,4 +1,4 @@
-/// Sync fields aligned with the backend PostgreSQL schema in
+/// Sync fields aligned with the backend User schema in
 /// `implementation_plan.md` (`updated_at`, `sync_status`, `is_deleted`).
 class SyncStatus {
   SyncStatus._();

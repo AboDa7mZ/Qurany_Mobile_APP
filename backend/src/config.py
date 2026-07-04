@@ -103,7 +103,7 @@ class Settings(BaseSettings):
     # Flutter client's _isSimilar threshold.
     similarity_threshold: float = 0.6
 
-    # Database (PostgreSQL in Docker; SQLite fallback for local dev/tests)
+    # Database (SQLite file in data/qurany.db; tables created on startup)
     database_url: str = f"sqlite:///{(BASE_DIR / 'data' / 'qurany.db').as_posix()}"
 
     # JWT auth

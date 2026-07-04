@@ -35,9 +35,25 @@ class AppConstants {
   /// saves a new address in Settings.
   static String? recitationApiUserOverride;
 
+  /// Strips trailing slashes so `$base/health` never becomes `//health`.
+  static String normalizeApiBaseUrl(String url) {
+    var u = url.trim();
+    while (u.length > 1 && u.endsWith('/')) {
+      u = u.substring(0, u.length - 1);
+    }
+    return u;
+  }
+
+  /// Builds an API URI from a base (with or without trailing slash) and path.
+  static Uri apiUri(String baseUrl, String path) {
+    final base = normalizeApiBaseUrl(baseUrl);
+    final p = path.startsWith('/') ? path : '/$path';
+    return Uri.parse('$base$p');
+  }
+
   static String get recitationApiDefaultUrl {
     const override = String.fromEnvironment('QURANY_API_BASE');
-    if (override.isNotEmpty) return override;
+    if (override.isNotEmpty) return normalizeApiBaseUrl(override);
     if (kIsWeb) return 'http://localhost:8000';
     if (!Platform.isAndroid) return 'http://localhost:8000';
     return 'http://10.0.2.2:8000';
@@ -45,7 +61,7 @@ class AppConstants {
 
   static String get recitationApiBaseUrl {
     final user = recitationApiUserOverride?.trim();
-    if (user != null && user.isNotEmpty) return user;
+    if (user != null && user.isNotEmpty) return normalizeApiBaseUrl(user);
     return recitationApiDefaultUrl;
   }
 

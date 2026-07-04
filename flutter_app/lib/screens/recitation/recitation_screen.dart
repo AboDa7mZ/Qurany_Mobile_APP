@@ -116,6 +116,10 @@ class _RecitationScreenState extends State<RecitationScreen>
   /// Hardware WAV capture via the record plugin (Android privacy mic indicator).
   bool _usingHardwareMic = false;
   bool _husaryCompletionHandled = false;
+  bool _startingRecording = false;
+
+  static const Duration _verseSilenceTimeout = Duration(seconds: 4);
+  static const Duration _husaryToMicHandoffDelay = Duration(milliseconds: 600);
 
   // Animation controllers
   late AnimationController _pulseController;
@@ -134,15 +138,13 @@ class _RecitationScreenState extends State<RecitationScreen>
 
   void _resetSilenceTimer() {
     _silenceTimer?.cancel();
-    if (_isRecording) {
-      final pauseSeconds = _isVerseMode ? 6 : 3;
-      _silenceTimer = Timer(Duration(seconds: pauseSeconds), () async {
-        debugPrint('Silence timeout. Automatically stopping recording.');
-        if (mounted && _isRecording) {
-          await _stopRecording();
-        }
-      });
-    }
+    if (!_isVerseMode || !_isRecording) return;
+    _silenceTimer = Timer(_verseSilenceTimeout, () async {
+      debugPrint('Silence timeout. Automatically stopping recording.');
+      if (mounted && _isRecording) {
+        await _stopRecording();
+      }
+    });
   }
 
   @override
@@ -613,6 +615,7 @@ class _RecitationScreenState extends State<RecitationScreen>
   }
 
   Future<void> _abortRecordingTurn(String message) async {
+    _startingRecording = false;
     _pulseController.stop();
     _pulseController.reset();
     _amplitudeSubscription?.cancel();
@@ -651,104 +654,109 @@ class _RecitationScreenState extends State<RecitationScreen>
   }
 
   Future<void> _startRecording() async {
-    if (_isRecording) return;
+    if (_isRecording || _startingRecording || _isProcessing) return;
+    _startingRecording = true;
+    try {
+      // Keep screen on while recording
+      WakelockPlus.enable();
 
-    // Keep screen on while recording
-    WakelockPlus.enable();
+      _pulseController.repeat(reverse: true);
+      _speechRestartCount = 0;
+      _lastSpeechRestartAt = null;
+      _voiceDetectedDuringTurn = false;
 
-    _pulseController.repeat(reverse: true);
-    _speechRestartCount = 0;
-    _lastSpeechRestartAt = null;
-    _voiceDetectedDuringTurn = false;
-
-    // Pre-populate matchedWords with reference words in "pending" state.
-    final List<String> refWordsForUi;
-    if (widget.mode == 'free' && _verses.isNotEmpty) {
-      refWordsForUi = _verses
-          .map((v) => v.text)
-          .join(' ')
-          .split(' ')
-          .where((w) => w.isNotEmpty)
-          .toList();
-    } else if (_isVerseMode && _verses.isNotEmpty) {
-      refWordsForUi = _verses[_currentVerseIndex]
-          .text
-          .split(' ')
-          .where((w) => w.isNotEmpty)
-          .toList();
-    } else {
-      refWordsForUi = <String>[];
-    }
-
-    setState(() {
-      _isRecording = true;
-      _hasShownErrorAlarm = false;
-      _tasmee3HintCount = 0;
-      _liveTranscription = '';
-      _matchedWords = refWordsForUi
-          .map((w) => _WordMatch(word: w, status: _MatchStatus.pending))
-          .toList();
-      _statusText = 'جاري التسجيل... اقرأ الآن';
-    });
-
-    _silenceTimer?.cancel();
-    final initialSilenceSeconds = _isVerseMode ? 18 : 8;
-    _silenceTimer = Timer(Duration(seconds: initialSilenceSeconds), () async {
-      if (!mounted || !_isRecording) return;
-      final noInput = _usingHardwareMic
-          ? !_voiceDetectedDuringTurn
-          : _liveTranscription.isEmpty;
-      if (noInput) {
-        debugPrint('Silence timeout. Automatically stopping recording.');
-        await _stopRecording();
+      // Pre-populate matchedWords with reference words in "pending" state.
+      final List<String> refWordsForUi;
+      if (widget.mode == 'free' && _verses.isNotEmpty) {
+        refWordsForUi = _verses
+            .map((v) => v.text)
+            .join(' ')
+            .split(' ')
+            .where((w) => w.isNotEmpty)
+            .toList();
+      } else if (_isVerseMode && _verses.isNotEmpty) {
+        refWordsForUi = _verses[_currentVerseIndex]
+            .text
+            .split(' ')
+            .where((w) => w.isNotEmpty)
+            .toList();
+      } else {
+        refWordsForUi = <String>[];
       }
-    });
 
-    _usingSpeechRecognition = false;
-    _usingHardwareMic = false;
-    _recordedAudioPath = null;
-
-    if (_isVerseMode) {
-      await _acquireMicForVerseTurn();
-      return;
-    }
-
-    final hasMic = await _audioService.requestPermission();
-    if (!hasMic) {
-      _abortRecordingTurn('يلزم إذن الميكروفون للتسجيل');
-      return;
-    }
-
-    // Parallel WAV for server analysis in free/memorization only.
-    if (_serverAnalysisEligible) {
-      try {
-        final started = await _audioService.startRecording();
-        if (started) {
-          _usingHardwareMic = true;
-          _attachMicAmplitudeListener();
-        }
-      } catch (e) {
-        debugPrint('Parallel audio capture unavailable: $e');
-      }
-    }
-
-    if (!_speechAvailable) {
-      await _initSpeech();
-    }
-
-    if (_speechAvailable) {
-      _startSpeechListening();
-      _durationSubscription?.cancel();
-      _durationSubscription = Stream.periodic(
-        const Duration(seconds: 1),
-        (i) => i + 1,
-      ).listen((dur) {
-        if (mounted) setState(() => _recordingSeconds = dur);
+      setState(() {
+        _isRecording = true;
+        _hasShownErrorAlarm = false;
+        _tasmee3HintCount = 0;
+        _liveTranscription = '';
+        _matchedWords = refWordsForUi
+            .map((w) => _WordMatch(word: w, status: _MatchStatus.pending))
+            .toList();
+        _statusText = 'جاري التسجيل... اقرأ الآن';
       });
-    } else {
-      await _abortRecordingTurn(
-        'التعرف على الكلام غير متاح على هذا الجهاز. تأكد من إعطاء إذن الميكروفون.',
-      );
+
+      _silenceTimer?.cancel();
+      if (_isVerseMode) {
+        _silenceTimer = Timer(const Duration(seconds: 18), () async {
+          if (!mounted || !_isRecording) return;
+          final noInput = _usingHardwareMic
+              ? !_voiceDetectedDuringTurn
+              : _liveTranscription.isEmpty;
+          if (noInput) {
+            debugPrint('Silence timeout. Automatically stopping recording.');
+            await _stopRecording();
+          }
+        });
+      }
+
+      _usingSpeechRecognition = false;
+      _usingHardwareMic = false;
+      _recordedAudioPath = null;
+
+      if (_isVerseMode) {
+        await _acquireMicForVerseTurn();
+        return;
+      }
+
+      final hasMic = await _audioService.requestPermission();
+      if (!hasMic) {
+        await _abortRecordingTurn('يلزم إذن الميكروفون للتسجيل');
+        return;
+      }
+
+      // Parallel WAV for server analysis in free/memorization only.
+      if (_serverAnalysisEligible) {
+        try {
+          final started = await _audioService.startRecording();
+          if (started) {
+            _usingHardwareMic = true;
+            _attachMicAmplitudeListener();
+          }
+        } catch (e) {
+          debugPrint('Parallel audio capture unavailable: $e');
+        }
+      }
+
+      if (!_speechAvailable) {
+        await _initSpeech();
+      }
+
+      if (_speechAvailable) {
+        _startSpeechListening();
+        _durationSubscription?.cancel();
+        _durationSubscription = Stream.periodic(
+          const Duration(seconds: 1),
+          (i) => i + 1,
+        ).listen((dur) {
+          if (mounted) setState(() => _recordingSeconds = dur);
+        });
+      } else {
+        await _abortRecordingTurn(
+          'التعرف على الكلام غير متاح على هذا الجهاز. تأكد من إعطاء إذن الميكروفون.',
+        );
+      }
+    } finally {
+      _startingRecording = false;
     }
   }
 
@@ -762,7 +770,8 @@ class _RecitationScreenState extends State<RecitationScreen>
   }
 
   void _onHusaryPlaybackFinished(int playToken) async {
-    if (!mounted || playToken != _husaryPlayToken || _isRecording) return;
+    if (!mounted || playToken != _husaryPlayToken) return;
+    if (_isRecording || _isProcessing || _startingRecording) return;
     if (_husaryCompletionHandled) return;
     _husaryCompletionHandled = true;
     _cancelHusarySubscriptions();
@@ -772,12 +781,22 @@ class _RecitationScreenState extends State<RecitationScreen>
       _husaryProgress = 1.0;
       _statusText = 'دورك الآن — جاري التسجيل...';
     });
+    // Let the speaker release audio focus before opening the mic.
+    await Future.delayed(_husaryToMicHandoffDelay);
+    if (!mounted ||
+        playToken != _husaryPlayToken ||
+        _isRecording ||
+        _isProcessing) {
+      return;
+    }
     await _startRecording();
   }
 
   /// Play Al-Husary's recitation for the current verse in Tahfeez mode
   Future<void> _playHusaryVerse() async {
     if (_verses.isEmpty || _isPlayingHusary) return;
+
+    _silenceTimer?.cancel();
 
     final verse = _verses[_currentVerseIndex];
     final audioUrl = verse.husaryAudioUrl;
@@ -800,13 +819,13 @@ class _RecitationScreenState extends State<RecitationScreen>
       _husaryPositionSub = _husaryPlayer.onPositionChanged.listen((pos) {
         if (playToken != _husaryPlayToken) return;
         _husaryPlayer.getDuration().then((dur) {
-          if (dur != null && dur.inMilliseconds > 0 && mounted) {
+          if (dur != null &&
+              dur.inMilliseconds > 0 &&
+              mounted &&
+              playToken == _husaryPlayToken) {
             setState(() {
               _husaryProgress = pos.inMilliseconds / dur.inMilliseconds;
             });
-            if (pos.inMilliseconds >= dur.inMilliseconds - 250) {
-              _onHusaryPlaybackFinished(playToken);
-            }
           }
         });
       });
@@ -861,8 +880,17 @@ class _RecitationScreenState extends State<RecitationScreen>
     await _startRecording();
   }
 
+  void _scheduleHusaryAfterVerseChange() {
+    if (!_hasStarted || widget.mode != 'tahfeez') return;
+    Future.delayed(const Duration(milliseconds: 800), () {
+      if (mounted && !_isRecording && !_isPlayingHusary && !_isProcessing) {
+        _playHusaryVerse();
+      }
+    });
+  }
+
   /// Navigate to next verse in Tahfeez mode, resetting Husary state
-  void _tahfeezNextVerse() {
+  void _tahfeezNextVerse({bool autoPlayHusary = true}) {
     if (_currentVerseIndex < _verses.length - 1) {
       _husaryPlayToken++;
       _cancelHusarySubscriptions();
@@ -871,11 +899,14 @@ class _RecitationScreenState extends State<RecitationScreen>
         _currentVerseIndex++;
         _resetVerseState();
       });
+      if (autoPlayHusary) {
+        _scheduleHusaryAfterVerseChange();
+      }
     }
   }
 
   /// Navigate to previous verse in Tahfeez mode
-  void _tahfeezPrevVerse() {
+  void _tahfeezPrevVerse({bool autoPlayHusary = true}) {
     if (_currentVerseIndex > 0) {
       _husaryPlayToken++;
       _cancelHusarySubscriptions();
@@ -884,6 +915,9 @@ class _RecitationScreenState extends State<RecitationScreen>
         _currentVerseIndex--;
         _resetVerseState();
       });
+      if (autoPlayHusary) {
+        _scheduleHusaryAfterVerseChange();
+      }
     }
   }
 
@@ -895,6 +929,11 @@ class _RecitationScreenState extends State<RecitationScreen>
       setState(() {
         _currentVerseIndex++;
         _resetVerseState();
+      });
+      Future.delayed(const Duration(milliseconds: 800), () {
+        if (mounted && !_isRecording && !_isPlayingHusary && !_isProcessing) {
+          _playHusaryVerse();
+        }
       });
     }
   }
@@ -1055,6 +1094,9 @@ class _RecitationScreenState extends State<RecitationScreen>
   }
 
   Future<void> _stopRecording() async {
+    if (!_isRecording) return;
+
+    _silenceTimer?.cancel();
     _pulseController.stop();
     _pulseController.reset();
     _amplitudeSubscription?.cancel();
@@ -1448,10 +1490,6 @@ class _RecitationScreenState extends State<RecitationScreen>
       }
 
       _tahfeezNextVerse();
-
-      Future.delayed(const Duration(milliseconds: 1200), () {
-        if (mounted) _playHusaryVerse();
-      });
     } else {
       _verseFaults[_currentVerseIndex] =
           (_verseFaults[_currentVerseIndex] ?? 0) + 1;

@@ -16,7 +16,7 @@ void main() {
     );
     expect(
       const AuthResult.failure(AuthFailure.backendUnavailable).messageAr,
-      contains('docker compose'),
+      contains('python main.py'),
     );
     expect(
       const AuthResult.failure(AuthFailure.invalidInput).messageAr,

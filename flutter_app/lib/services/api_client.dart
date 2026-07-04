@@ -9,8 +9,16 @@ class ApiClient {
   final http.Client _client;
 
   ApiClient({String? baseUrl, http.Client? client})
-      : baseUrl = baseUrl ?? AppConstants.recitationApiBaseUrl,
+      : baseUrl = AppConstants.normalizeApiBaseUrl(
+          baseUrl ?? AppConstants.recitationApiBaseUrl,
+        ),
         _client = client ?? http.Client();
+
+  Uri _uri(String path, {Map<String, String>? query}) {
+    final uri = AppConstants.apiUri(baseUrl, path);
+    if (query == null || query.isEmpty) return uri;
+    return uri.replace(queryParameters: query);
+  }
 
   Map<String, String> _headers({String? token, bool json = true}) {
     final headers = <String, String>{};
@@ -26,7 +34,7 @@ class ApiClient {
     String? token,
     Map<String, String>? query,
   }) {
-    final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
+    final uri = _uri(path, query: query);
     return _client.get(uri, headers: _headers(token: token));
   }
 
@@ -36,7 +44,7 @@ class ApiClient {
     String? token,
   }) {
     return _client.post(
-      Uri.parse('$baseUrl$path'),
+      _uri(path),
       headers: _headers(token: token),
       body: json.encode(body),
     );
@@ -47,7 +55,7 @@ class ApiClient {
     required Map<String, String> fields,
   }) {
     return _client.post(
-      Uri.parse('$baseUrl$path'),
+      _uri(path),
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
       body: fields,
     );

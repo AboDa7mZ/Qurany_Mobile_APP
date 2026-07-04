@@ -1,0 +1,7 @@
+# Fine-tuned Whisper backend (ASR_BACKEND=transformers).
+# Install PyTorch first — locally run ONE of:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install torch   # CUDA build if you have a GPU
+transformers
+librosa
+numpy

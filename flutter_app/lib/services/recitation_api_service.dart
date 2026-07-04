@@ -41,8 +41,9 @@ class RecitationApiService {
   /// Quick health probe used to decide between server and on-device analysis.
   Future<bool> isHealthy({Duration timeout = const Duration(seconds: 3)}) async {
     try {
-      final resp =
-          await _client.get(Uri.parse('$baseUrl/health')).timeout(timeout);
+      final resp = await _client
+          .get(AppConstants.apiUri(baseUrl, '/health'))
+          .timeout(timeout);
       if (resp.statusCode != 200) return false;
       final body = json.decode(resp.body) as Map<String, dynamic>;
       return body['status'] == 'ok';
@@ -71,7 +72,7 @@ class RecitationApiService {
 
     final request = http.MultipartRequest(
       'POST',
-      Uri.parse('$baseUrl/api/v1/analyze'),
+      AppConstants.apiUri(baseUrl, '/api/v1/analyze'),
     )
       ..fields['surah_number'] = surahNumber.toString()
       ..fields['riwayah'] = riwayah
@@ -123,7 +124,7 @@ class RecitationApiService {
 
       final resp = await _client
           .post(
-            Uri.parse('$baseUrl/api/v1/analyze-text'),
+            AppConstants.apiUri(baseUrl, '/api/v1/analyze-text'),
             headers: {'Content-Type': 'application/json'},
             body: json.encode(body),
           )

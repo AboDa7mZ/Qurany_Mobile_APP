@@ -8,6 +8,8 @@
 # ── Python / Node ─────────────────────────────────────────
 .venv/
 venv/
+backend/.pip-cache/
+backend/.tmp/
 __pycache__/
 *.py[cod]
 node_modules/
@@ -25,6 +27,8 @@ quranic-universal-library-main/
 
 # ── Build outputs / distributables ────────────────────────
 dist/
+flutter_app/.gradle-home/
+backend/test_outputs/
 
 # ── External / sibling projects (not part of this repo) ───
 Tarteel-AI-Model/

@@ -10,7 +10,6 @@ email-validator
 
 # Database
 sqlalchemy
-psycopg[binary]
 
 # Auth
 python-jose[cryptography]
@@ -27,11 +26,6 @@ httpx
 pytest
 pytest-asyncio
 
-# --- Optional: only needed when ASR_BACKEND=transformers (loading our
-# fine-tuned Kaggle checkpoint directly) or when ENABLE_TAJWEED_HEURISTICS
-# is on (qalqalah acoustic check uses librosa). Not required for the default
-# faster-whisper backend.
-transformers
-torch
-librosa
-numpy
+# --- Optional ML stack (ASR_BACKEND=transformers or tajweed heuristics):
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install -r requirements-transformers.txt

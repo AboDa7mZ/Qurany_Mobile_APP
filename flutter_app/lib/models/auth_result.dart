@@ -18,7 +18,7 @@ class AuthResult {
   String get messageAr {
     switch (failure) {
       case AuthFailure.backendUnavailable:
-        return 'تعذر الاتصال بالخادم. تأكد أن docker compose up يعمل ثم أعد المحاولة.';
+        return 'تعذر الاتصال بالخادم. تأكد أن python main.py يعمل وعنوان الخادم في الإعدادات صحيح، ثم أعد المحاولة.';
       case AuthFailure.invalidCredentials:
         return 'البريد الإلكتروني أو كلمة المرور غير صحيحة.';
       case AuthFailure.invalidInput:

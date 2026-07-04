@@ -54,16 +54,15 @@ backend/
 ├── data/uploads/recitations/         # uploaded audio (transient)
 ├── models/                     # extracted fine-tuned checkpoints (see training/kaggle/)
 ├── training/kaggle/            # Kaggle fine-tuning scripts + notebooks (Hafs + Bazzi riwayat) + READMEs
-├── docker/                     # Dockerfile + docker-compose
+├── data/qurany.db              # SQLite database (auth users; auto-created on startup)
 ├── tests/                      # pytest suite
 └── main.py                     # `python main.py` runner
 ```
 
 ## Getting started
 
-> **Python:** developed/verified on 3.14, but 3.11–3.12 are recommended for the
-> broadest ML-wheel compatibility. The Docker image uses 3.12.
-> **ffmpeg** must be installed for audio decoding (bundled in the Docker image).
+> **Python:** 3.11–3.14 supported; 3.12 recommended for ML wheels.
+> **ffmpeg** must be installed on the host for audio decoding.
 
 ```bash
 # From backend/
@@ -117,8 +116,16 @@ Qalqalah heuristic) packages — see the commented-out block at the bottom of
 | POST   | `/api/v1/auth/register`  | Create account + JWT                          |
 | POST   | `/api/v1/auth/login`     | OAuth2 password login (username=email) + JWT  |
 | GET    | `/api/v1/auth/me`        | Current user profile (Bearer token)           |
-| POST   | `/api/v1/sync/push`      | Upload offline-first pending changes          |
-| GET    | `/api/v1/sync/pull`      | Download server changes (`updated_after`)   |
+
+### Database
+
+Local dev uses **SQLite** (`data/qurany.db`). SQLAlchemy creates tables on
+startup via `init_db()`. Override with `DATABASE_URL` in `.env` if needed.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | `sqlite:///…/data/qurany.db` | SQLAlchemy database URL |
+| `JWT_SECRET` | `change-me-in-production` | JWT signing secret |
 
 ### `POST /api/v1/analyze`  (multipart/form-data)
 
@@ -161,49 +168,6 @@ pytest                # 31 tests: arabic normalization, alignment, tajweed heuri
 The test suite does **not** require the ASR model (it exercises the comparison
 path via `/analyze-text`), so it runs fast and offline.
 
-## Docker
-
-```bash
-# From backend/ — starts PostgreSQL + API
-docker compose -f docker/docker-compose.yml up --build
-```
-
-Environment variables:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | SQLite file in `data/qurany.db` | PostgreSQL URL for FastAPI (`postgresql+psycopg://...`) |
-| `PRISMA_DATABASE_URL` | — | Standard Postgres URL for Prisma Studio (`postgresql://...`) |
-| `JWT_SECRET` | `change-me-in-production` | JWT signing secret |
-
-## Prisma Studio (view tables)
-
-Prisma is configured for **browsing** the PostgreSQL schema in Prisma Studio.  
-The FastAPI app still creates/updates tables via SQLAlchemy (`init_db` on startup).
-
-```bash
-# 1. Start PostgreSQL + backend (creates tables)
-docker compose -f docker/docker-compose.yml up -d postgres backend
-
-# 2. From backend/
-copy .env.example .env          # Windows (set DATABASE_URL + PRISMA_DATABASE_URL)
-npm install
-npm run studio                  # opens http://localhost:5555
-```
-
-Useful commands:
-
-```bash
-npm run validate    # check schema.prisma
-npm run db:pull     # introspect DB after SQLAlchemy schema changes
-npm run db:generate # generate Prisma Client (optional)
-```
-
-Prisma uses `PRISMA_DATABASE_URL` (standard form):
-`postgresql://qurany:qurany@localhost:5432/qurany`  
-FastAPI uses `DATABASE_URL` with the SQLAlchemy driver prefix:
-`postgresql+psycopg://qurany:qurany@localhost:5432/qurany`
-
 ## Flutter integration
 
 Wired up in the app:
@@ -223,12 +187,11 @@ Point the app at your backend with:
 flutter run --dart-define=QURANY_API_BASE=http://10.0.2.2:8000   # Android emulator
 ```
 
-### Auth & sync
+### Auth
 
 - Register/login call `/api/v1/auth/*` when the backend is reachable.
 - JWT is stored locally; guest mode remains offline-only.
-- Pending local changes sync via `/api/v1/sync/push` then `/api/v1/sync/pull`.
-- Manual sync is available under **Settings → مزامنة البيانات**.
+- User accounts are stored in the local SQLite database (`data/qurany.db`).
 
 > Note: running the recorder and the platform speech recognizer at the same
 > time can contend for the microphone on some devices; if WAV capture fails,

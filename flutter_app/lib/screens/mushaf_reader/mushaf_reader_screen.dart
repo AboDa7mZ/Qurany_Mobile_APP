@@ -57,6 +57,9 @@ class _MushafReaderScreenState extends State<MushafReaderScreen> {
   // In-place recitation state
   final stt.SpeechToText _speech = stt.SpeechToText();
   bool _speechAvailable = false;
+  bool _speechIsListening = false;
+  DateTime? _lastSpeechRestartAt;
+  static const Duration _speechRestartCooldown = Duration(milliseconds: 1500);
   bool _isRecording = false;
   Set<int> _revealedWordIds = {};
   List<MushafWord> _currentPageWords = [];
@@ -355,13 +358,24 @@ class _MushafReaderScreenState extends State<MushafReaderScreen> {
   void _toggleRecording(MushafPage page) async {
     if (_isRecording) {
       _speech.stop();
+      _speechIsListening = false;
       WakelockPlus.disable();
       setState(() => _isRecording = false);
     } else {
       if (!_speechAvailable) {
         _speechAvailable = await _speech.initialize(
           onError: (val) => debugPrint('STT Error: ${val.errorMsg}'),
-          onStatus: (val) => debugPrint('STT Status: $val'),
+          onStatus: (status) {
+            debugPrint('STT Status: $status');
+            if (status == 'listening') {
+              _speechIsListening = true;
+            } else if (status == 'notListening' || status == 'done') {
+              _speechIsListening = false;
+              if (status == 'notListening' && _isRecording) {
+                _restartSpeechListening();
+              }
+            }
+          },
         );
       }
       if (_speechAvailable) {
@@ -374,27 +388,57 @@ class _MushafReaderScreenState extends State<MushafReaderScreen> {
               .where((w) => !w.isAyahMarker)
               .toList();
           if (_currentPageWords.isNotEmpty) {
-             _activeWordId = _currentPageWords.first.id;
+            _activeWordId = _currentPageWords.first.id;
           }
         });
         WakelockPlus.enable();
-        _speech.listen(
-          onResult: _onSpeechResult,
-          localeId: 'ar',
-          listenFor: const Duration(seconds: 120),
-          pauseFor: const Duration(seconds: 5),
-          listenOptions: stt.SpeechListenOptions(
-            listenMode: stt.ListenMode.dictation,
-            cancelOnError: false,
-            partialResults: true,
-          ),
-        );
+        _startSpeechListening();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('التعرف على الصوت غير متاح. تأكد من إعطاء الصلاحيات.')),
         );
       }
     }
+  }
+
+  void _restartSpeechListening() {
+    if (!_isRecording || !_speechAvailable) return;
+
+    final now = DateTime.now();
+    if (_lastSpeechRestartAt != null &&
+        now.difference(_lastSpeechRestartAt!) < _speechRestartCooldown) {
+      return;
+    }
+    _lastSpeechRestartAt = now;
+
+    Future.delayed(const Duration(milliseconds: 400), () {
+      if (_isRecording && mounted && !_speechIsListening) {
+        _startSpeechListening();
+      }
+    });
+  }
+
+  void _startSpeechListening() {
+    if (!_speechAvailable || !_isRecording) return;
+    try {
+      if (_speech.isListening) {
+        _speech.stop();
+      }
+    } catch (_) {}
+    _speechIsListening = false;
+
+    _speech.listen(
+      onResult: _onSpeechResult,
+      localeId: 'ar',
+      listenFor: const Duration(seconds: 120),
+      pauseFor: const Duration(seconds: 8),
+      listenOptions: stt.SpeechListenOptions(
+        listenMode: stt.ListenMode.dictation,
+        cancelOnError: false,
+        partialResults: true,
+      ),
+    );
+    _speechIsListening = true;
   }
 
   void _onSpeechResult(SpeechRecognitionResult result) {

@@ -2,8 +2,8 @@ if i am to wire the back to the front, what would be the url to use on the front
 
 Base URL for the frontend (your laptop, right now):
 
-http://192.168.1.25:8000/
-Not https:// — plain HTTP only.
+http://192.168.1.25:8000
+Not https:// — plain HTTP only. Trailing slash is optional (app normalizes it).
 
 How it’s wired in the app
 Everything backend-related goes through AppConstants.recitationApiBaseUrl:
@@ -20,29 +20,29 @@ Quran, prayer, tafsir APIs stay on the public internet — not this URL.
 How to set it
 Recommended (no code change):
 
-flutter run --dart-define=QURANY_API_BASE=http://192.168.1.25:8000/
-Or hardcode for testing in constants.dart (line ~30):
+flutter run --dart-define=QURANY_API_BASE=http://192.168.1.25:8000
+Or in app Settings → خادم التحليل (after guest login).
 
-return 'http://192.168.1.25:8000/';
 Defaults if you don’t set anything
 Target    URL
 Real phone
 ❌ defaults to 10.0.2.2 (emulator only) — must set QURANY_API_BASE
 Android emulator
-http://10.0.2.2:8000/
+http://10.0.2.2:8000
 Desktop / iOS sim
-http://localhost:8000/
+http://localhost:8000
 If your laptop IP changes, run ipconfig and update the URL.
 
 Build APK for phone testing (arm64, baked-in backend URL):
 
 cd flutter_app
-flutter build apk --release --split-per-abi --target-platform android-arm64 --dart-define=QURANY_API_BASE=http://192.168.1.25:8000/
+flutter build apk --release --split-per-abi --target-platform android-arm64 --dart-define=QURANY_API_BASE=http://192.168.1.25:8000
 copy build\app\outputs\flutter-apk\app-arm64-v8a-release.apk ..\dist\qurany-app-test-192.168.1.25.apk
 
 Start backend (from backend/, phone must be on same LAN):
 
 copy .env.example .env
-.venv\Scripts\activate
+.\.venv\Scripts\Activate.ps1
 python main.py
 
+Database: SQLite at backend/data/qurany.db (auth users). No Docker/Postgres required.
